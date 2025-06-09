@@ -1,0 +1,19 @@
+
+app_name = "AI Video factory"
+app_desc = "AI for generate videos base on your prompt"
+app_version = "1.0"
+
+log_level = "DEBUG"
+listen_host = "0.0.0.0"
+listen_port = 8090
+
+runway_video_model = 'Gen-4'
+runway_video_model_alias = 'Gen4'
+runway_image_model = 'Gen-4'
+runway_image_model_alias = 'Gen4'
+runway_team_id = 39742021
+runway_default_auth_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Mzg0Nzk1MzYsImVtYWlsIjoib29mYWdoMEBnbWFpbC5jb20iLCJleHAiOjE3NTE1OTM4NzAuOTQ1LCJpYXQiOjE3NDkwMDE4NzAuOTQ1LCJzc28iOmZhbHNlfQ.uULpaOuP-y2uy6etwp_-1mGk39WRxbTfvijFCIHNxkI"
+runway_task_api_url = "https://api.runwayml.com/v1/tasks"
+runway_profile_url = "https://api.runwayml.com/v1/profile"
+runway_estimate_url = "https://api.runwayml.com/v1/billing/estimate_feature_cost_credits"
+
