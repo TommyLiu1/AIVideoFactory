@@ -29,10 +29,17 @@ async def generate_video(
         if result_code != 200:
             return utils.get_response(status=result_code, message=result_str)
         team_id = result_str
+        meta_info = {
+            'user_id': user_id,
+            'prompt':request.prompt,
+            'model':request.model,
+            'ratio':request.ratio,
+            'video_nums':request.numbers
+        }
         job = generate_videos_queue.enqueue(generate_video_task,
                                             args=(request, team_id,authorization),
                                             job_id=utils.get_uuid(),
-                                            meta={'user_id': user_id},
+                                            meta=meta_info,
                                             timeout=3600,
                                             failure_ttl = 86400 * 5,
                                             result_ttl=86400)
@@ -51,7 +58,16 @@ async def query_task(task_id: str, user_id: int):
         return utils.get_response(status=1004, message="查询的任务不存在")
     if job.meta.get('user_id') != user_id:
         return utils.get_response(status=403, message="无权访问该任务")
-    return utils.get_response(status=200, data={'job_id':job.id, 'status':job.get_status()})
+    return_res_dict = {
+        'user_id': job.meta.get('user_id'),
+        'job_id': job.id,
+        'prompt': job.meta.get('prompt'),
+        'model': job.meta.get('model'),
+        'ratio': job.meta.get('ratio'),
+        'video_nums': job.meta.get('video_nums'),
+        'job_status': job.get_status()
+    }
+    return utils.get_response(status=200, data=return_res_dict, message='success')
 
 @router.get('/tasks')
 async def query_all_task(user_id: int):
@@ -62,27 +78,63 @@ async def query_all_task(user_id: int):
     for queue_job_id in job_id_list:
         queue_job = generate_videos_queue.fetch_job(queue_job_id)
         if queue_job.meta.get('user_id') == user_id:
-            res_tasks.append({'job_id': queue_job.id, 'job_status': queue_job.get_status()})
+            return_res_dict = {
+                'user_id': queue_job.meta.get('user_id'),
+                'job_id': queue_job.id,
+                'prompt': queue_job.meta.get('prompt'),
+                'model': queue_job.meta.get('model'),
+                'ratio': queue_job.meta.get('ratio'),
+                'video_nums': queue_job.meta.get('video_nums'),
+                'job_status': queue_job.get_status()
+            }
+            res_tasks.append(return_res_dict)
     # 查询已开始但未完成的任务
     workers = rq.Worker.all(connection=redis_conn)
     for worker in workers:
         cur_run_job = worker.get_current_job()
         if cur_run_job and cur_run_job.meta.get('user_id') == user_id:
-            res_tasks.append({'job_id': cur_run_job.id, 'job_status': cur_run_job.get_status()})
+            return_res_dict = {
+                'user_id': cur_run_job.meta.get('user_id'),
+                'job_id': cur_run_job.id,
+                'prompt': cur_run_job.meta.get('prompt'),
+                'model': cur_run_job.meta.get('model'),
+                'ratio': cur_run_job.meta.get('ratio'),
+                'video_nums': cur_run_job.meta.get('video_nums'),
+                'job_status': cur_run_job.get_status()
+            }
+            res_tasks.append(return_res_dict)
 
     # 检查已完成的任务
     finished_registry = FinishedJobRegistry(generate_videos_queue.name, generate_videos_queue.connection)
     for finished_job_id in finished_registry.get_job_ids():
         finished_job = generate_videos_queue.fetch_job(finished_job_id)
         if finished_job.meta.get('user_id') == user_id:
-            res_tasks.append({'job_id': finished_job.id, 'job_status': finished_job.get_status()})
+            return_res_dict = {
+                'user_id': finished_job.meta.get('user_id'),
+                'job_id': finished_job.id,
+                'prompt': finished_job.meta.get('prompt'),
+                'model': finished_job.meta.get('model'),
+                'ratio': finished_job.meta.get('ratio'),
+                'video_nums': finished_job.meta.get('video_nums'),
+                'job_status': finished_job.get_status()
+            }
+            res_tasks.append(return_res_dict)
 
         # 检查失败的任务
         failed_registry = FailedJobRegistry(generate_videos_queue.name, generate_videos_queue.connection)
         for failed_job_id in failed_registry.get_job_ids():
             failed_job = generate_videos_queue.fetch_job(failed_job_id)
             if failed_job.meta.get('user_id') == user_id:
-                res_tasks.append({'job_id': failed_job.id, 'job_status': failed_job.get_status()})
+                return_res_dict = {
+                    'user_id': failed_job.meta.get('user_id'),
+                    'job_id': failed_job.id,
+                    'prompt': failed_job.meta.get('prompt'),
+                    'model': failed_job.meta.get('model'),
+                    'ratio': failed_job.meta.get('ratio'),
+                    'video_nums': failed_job.meta.get('video_nums'),
+                    'job_status': failed_job.get_status()
+                }
+                res_tasks.append(return_res_dict)
 
     return utils.get_response(status=200, data=res_tasks, message="success")
 
