@@ -46,7 +46,7 @@ async def _poll_task_status(task_id: str, team_id: int, authorization: str, task
         await asyncio.sleep(5)
 
 
-async def _poll_can_submit_video_task_status(team_id: int, authorization: str, model_name: str = None):
+async def _poll_can_submit_image_or_video_task_status(team_id: int, authorization: str, model_name: str = None):
     while True:
         credit_status_code, can_submit_video_or_error = await estimate_feature_cost_credits(
             team_id=team_id,
@@ -89,6 +89,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
             asTeamId=team_id,
             sessionId=request.sessionId
         )
+        await _poll_can_submit_image_or_video_task_status(team_id, authorization)
         logger.info(f"Submitting image generation task with payload: {text_to_image_req.model_dump_json(exclude_none=True)}")
         
         img_status_code, img_task_id_or_error = await submit_generate_image_task(
@@ -113,7 +114,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
     final_videos_urls = []
     for image_url in image_url_for_videos:
         # Step 4: Estimate feature cost credits
-        can_submit_video = await _poll_can_submit_video_task_status(team_id, authorization)
+        can_submit_video = await _poll_can_submit_image_or_video_task_status(team_id, authorization)
         # Step 5: Submit video generation task if credits are sufficient
         if can_submit_video:
             video_request_payload = request.model_copy(update={"image_url": image_url})

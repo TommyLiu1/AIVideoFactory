@@ -17,3 +17,5 @@ runway_task_api_url = "https://api.runwayml.com/v1/tasks"
 runway_profile_url = "https://api.runwayml.com/v1/profile"
 runway_estimate_url = "https://api.runwayml.com/v1/billing/estimate_feature_cost_credits"
 
+mysql_db_url = "mysql+pymysql://root:dw123456@localhost:3306/db_video_factory?charset=utf8mb4"
+

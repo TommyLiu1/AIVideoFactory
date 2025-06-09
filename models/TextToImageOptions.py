@@ -5,8 +5,8 @@ from typing import Optional
 class TextToImageOptions(BaseModel):
     text_prompt: str
     seed: Optional[int] = None
-    exploreMode: Optional[bool] = False
-    width: Optional[int] = 720
+    exploreMode: Optional[bool] = True
+    width: Optional[int] = 768
     height: Optional[int] = 1280
     num_images: Optional[int] = 1
     flip: Optional[bool] = True

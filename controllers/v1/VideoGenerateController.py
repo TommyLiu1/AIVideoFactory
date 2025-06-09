@@ -42,7 +42,7 @@ async def generate_video(
                                             meta=meta_info,
                                             timeout=3600,
                                             failure_ttl = 86400 * 5,
-                                            result_ttl=86400)
+                                            result_ttl=86400 * 2)
 
         return utils.get_response(status=200, data={'job_id': job.id}, message='success')
     except Exception as e:

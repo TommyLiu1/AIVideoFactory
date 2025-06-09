@@ -73,7 +73,7 @@ async def submit_generate_video_task(request: ImageToVideoRequest, team_id: int,
         authorization: str = Header(None, description="Runway授权令牌")):
     headers = await get_runwayml_headers(authorization)
     options = request.options.model_dump() if request.options else {}
-    width, height = (720, 1280) if request.ratio.find("9:16") != -1 else (1280, 1920)
+    width, height = (768, 1280) if request.ratio.find("9:16") != -1 else (1080, 1920)
     seed = int(time.time())
     model = config.video_default_model if not request.model else request.model
     model_alias = config.video_default_model_alias
