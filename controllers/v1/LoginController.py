@@ -45,7 +45,7 @@ def authenticate_user(username: str, password: str):
 async def login(login_request: LoginRequest = Body(...)):
     user = authenticate_user(login_request.username, login_request.password)
     if not user:
-        utils.get_response(status=401, message="用户名或者密码验证失败")
+        return utils.get_response(status=401, message="用户名或者密码验证失败")
 
     return utils.get_response(status=200, data={'user_id':user.id}, message="success")
 
