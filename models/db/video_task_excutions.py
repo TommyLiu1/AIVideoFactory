@@ -2,19 +2,19 @@ from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
-Base = declarative_base()
+task_base = declarative_base()
 
-class VideoTaskExecution(Base):
+class VideoTaskExecution(task_base):
 
-    __tablename__ = "t_video_task_executions"
+    __tablename__ = "t_video_task_execution"
 
     id = Column(Integer, primary_key=True, index=True)
-    task_id = Column(String(255), unique=True, index=True, nullable=False)
-    user_id = Column(Integer, index=True, nullable=False)
+    task_id = Column(String(255), unique=True, index=True, nullable=True)
     prompt = Column(Text)
     model = Column(String(100))
     model_supply = Column(String(100))
     ratio = Column(String(50))
+    video_duration = Column(Integer, index=True, nullable=False)
     video_nums = Column(Integer)
     task_status = Column(String(50))
     video_url = Column(String(1024))
@@ -25,7 +25,7 @@ class VideoTaskExecution(Base):
         return {
             "id": self.id,
             "task_id": self.task_id,
-            "user_id": self.user_id,
+            "video_duration": self.video_duration,
             "prompt": self.prompt,
             "model": self.model,
             "model_supply": self.model_supply,
@@ -41,4 +41,4 @@ class VideoTaskExecution(Base):
         return self.__str__()
 
 
-    
+
