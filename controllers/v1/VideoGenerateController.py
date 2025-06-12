@@ -1,13 +1,19 @@
+import os.path
+
 from controllers.v1.base import new_router
 from models.ImageToVideoRequest import ImageToVideoRequest
 from fastapi import  Header
+from urllib.parse import urlparse, unquote
+from service.db.user_db_service import UserDBService
+from service.db.video_task_db_service import VideoTaskDBService
 from service.runway import verify_profile
 from tasks.runway_generate_video_task import generate_video_task
 from utils import utils
 from loguru import logger
-from redis import Redis
+from redis import Redis, int_or_str
 from rq.registry import FinishedJobRegistry, FailedJobRegistry
 import rq
+import requests
 
 
 router = new_router()
@@ -16,6 +22,74 @@ redis_conn = Redis(host='localhost', port=6379, db=0)
 # 创建任务队列
 generate_videos_queue = rq.Queue(name="runway_generate_videos_queue", connection=redis_conn)
 
+async def generate_video_for_client(request: ImageToVideoRequest, authorization: str, task_id: str = None):
+    try:
+        logger.info(f'[generate_video_for_client] generate video request:{request}')
+        # 跑任务前验证下token是否失效
+        result_code, result_str = await verify_profile(authorization)
+        if result_code != 200:
+            return False, result_str
+        team_id = result_str
+        job = generate_videos_queue.enqueue(generate_video_task,
+                                            args=(request, team_id, authorization, task_id),
+                                            job_id=task_id if task_id else utils.get_uuid(),
+                                            timeout=3600,
+                                            on_failure=handle_failed_job,
+                                            on_success=handle_success_job,
+                                            failure_ttl=86400 * 5,
+                                            result_ttl=86400 * 2)
+        if not job:
+            return False, "任务提交失败，请稍后再试"
+        return True, job.id
+    except Exception as e:
+        logger.error(f'[generate_video_for_client] generate video request exception:{e}')
+        return False, "任务提交异常，请稍后再试"
+
+def handle_success_job(job, connection, result):
+    logger.info(f'[handle_success_job] Job {job.id} completed successfully.')
+    try:
+        user = UserDBService.get_user()
+        video_save_path = os.path.join(user.vodeo_save_path, job.id)
+        if not os.path.exists(video_save_path):
+            os.makedirs(video_save_path)
+
+        if type(result) is list:
+            video_url_list = result[0]
+            saved_path_list = []
+            for video_url in video_url_list:
+                logger.info(f'[handle_success_job] Video URL: {video_url}')
+                saved_path = download_video(video_url, video_save_path, get_filename_from_url(video_url))
+                saved_path_list.append(saved_path)
+            # 更新数据库中的任务状态
+            saved_path_str = ','.join(saved_path_list)
+            VideoTaskDBService.update_task_status(job.id, 'finished', video_url=saved_path_str)
+        VideoTaskDBService.update_task_status(job.id, 'finished', video_url="")
+    except Exception as e:
+        logger.error(f'[handle_success_job] Exception while handling success job: {e}')
+
+
+def handle_failed_job(job,  connection, result):
+    logger.error(f'[handle_failed_job] Job {job.id} failed with result: {result}')
+    VideoTaskDBService.update_task_status(job.id, 'failed', video_url="")
+
+def download_video(url, save_dir, filename=None):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    if not filename:
+        filename = url.split('/')[-1].split('?')[0]
+    save_path = os.path.join(save_dir, filename)
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(save_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+    return save_path
+
+def get_filename_from_url(url):
+    path = urlparse(url).path
+    filename = os.path.basename(path)
+    return unquote(filename)
 
 @router.post('/generate-video')
 async def generate_video(

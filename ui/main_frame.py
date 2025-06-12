@@ -1,6 +1,9 @@
 import wx
 import wx.grid as gridlib
 
+from controllers.v1.VideoGenerateController import generate_video_for_client
+from models.ImageToVideoRequest import ImageToVideoRequest
+from service.db.user_db_service import UserDBService
 from ui.add_task_dialog import AddTaskDialog
 import threading
 import time
@@ -24,50 +27,6 @@ WHITE_TEXT = wx.WHITE
 LIST_ROW_HOVER_BG = wx.Colour(235, 245, 255)  # Light blue on hover (subtle)
 LIST_ROW_SELECTED_BG = wx.Colour(217, 236, 255)  # Slightly darker blue on selection
 
-# class ActionButtonRenderer(gridlib.GridCellRenderer):
-#     def __init__(self, parent, btn_labels=None):
-#         super().__init__()
-#         self.parent = parent
-#         self.btn_labels = btn_labels or []
-#         self.btn_width = 60
-#         self.btn_height = 28
-#         self.btn_gap = 10
-#         self.btn_rects = []  # 存储每个按钮的rect
-#
-#     def Draw(self, grid, attr, dc, rect, row, col, isSelected):
-#         # 清理单元格背景
-#         dc.SetBrush(wx.Brush(grid.GetDefaultCellBackgroundColour()))
-#         dc.SetPen(wx.Pen(grid.GetDefaultCellBackgroundColour()))
-#         dc.DrawRectangle(rect.x, rect.y, rect.width, rect.height)
-#
-#         btn_colors = {
-#             "运行": wx.Colour(64, 158, 255),
-#             "编辑": wx.Colour(103, 194, 58),
-#             "删除": wx.Colour(245, 108, 108),
-#             "取消": wx.Colour(230, 162, 60),
-#             "重试": wx.Colour(230, 162, 60),
-#             "下载": wx.Colour(144, 147, 153),
-#             "失败详情": wx.Colour(245, 108, 108),
-#         }
-#         x = rect.x + 10  # 按钮起始x，靠左排列，避免重叠
-#         y = rect.y + (rect.height - self.btn_height) // 2
-#         self.btn_rects = []
-#         for label in self.btn_labels:
-#             if x + self.btn_width > rect.x + rect.width:
-#                 break
-#             color = btn_colors.get(label, wx.Colour(64, 158, 255))
-#             dc.SetBrush(wx.Brush(color))
-#             dc.SetPen(wx.Pen(color))
-#             dc.DrawRoundedRectangle(x, y, self.btn_width, self.btn_height, 6)
-#             dc.SetTextForeground(wx.WHITE)
-#             dc.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-#             tw, th = dc.GetTextExtent(label)
-#             dc.DrawText(label, x + (self.btn_width - tw) // 2, y + (self.btn_height - th) // 2)
-#             self.btn_rects.append(wx.Rect(x, y, self.btn_width, self.btn_height))
-#             x += self.btn_width + self.btn_gap
-#
-#     def Clone(self):
-#         return ActionButtonRenderer(self.parent, self.btn_labels.copy())
 
 class MainFrame(wx.Frame):
     def __init__(self, parent, title):
@@ -79,6 +38,7 @@ class MainFrame(wx.Frame):
         self.Centre()
         self.SetMinSize(wx.Size(850, 600))
         # 绑定Grid右键菜单事件
+        self.Bind(wx.EVT_SIZE, self.on_size)
         self.grid.Bind(gridlib.EVT_GRID_CELL_RIGHT_CLICK, self.on_grid_cell_right_click)
         self.grid.Bind(gridlib.EVT_GRID_SELECT_CELL, self.on_grid_select_cell)
         # Bind activate event to refresh task list when window is activated
@@ -87,40 +47,38 @@ class MainFrame(wx.Frame):
         self.refresh_task_list()
         self.create_menu_bar()
 
+    def on_size(self, event):
+        self.Layout()
+        # 重新设置列宽
+        total_width = self.panel.GetClientSize().GetWidth() or 1280
+        col_ratios = [0.05, 0.18, 0.38, 0.08, 0.13, 0.07, 0.06, 0.05]  # 各列宽度比例，和为1
+        for idx, ratio in enumerate(col_ratios):
+            self.grid.SetColSize(idx, int(total_width * ratio))
+        event.Skip()
 
     def create_widgets(self):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         top_button_sizer = wx.BoxSizer(wx.HORIZONTAL)
-
-        # 抖音风格配色
-        COLOR_PRIMARY = wx.Colour(0, 0, 0)         # 黑色（主色）
-        COLOR_ACCENT = wx.Colour(255, 44, 85)      # 抖音红
-        COLOR_BLUE = wx.Colour(0, 229, 238)        # 抖音蓝
-        COLOR_GRAY = wx.Colour(51, 51, 51)         # 深灰
-        COLOR_LIGHT = wx.Colour(255, 255, 255)     # 白色
         BTN_HEIGHT = 40
-
 
         # Add '新增任务' button
         add_task_button = wx.Button(self.panel, label="新增任务", size=wx.Size(-1, BTN_HEIGHT))
         add_task_button.SetBackgroundColour(wx.BLUE)  # 深灰色背景
         add_task_button.SetForegroundColour(wx.WHITE)
-
         add_task_button.Bind(wx.EVT_BUTTON, self.on_add_task)
         top_button_sizer.Add(add_task_button, 0, wx.ALL, 5)
 
         # Add '全选' button
         select_all_button = wx.Button(self.panel, label="全选", size=wx.Size(-1, BTN_HEIGHT))
-        select_all_button.SetBackgroundColour(COLOR_GRAY)
-        # select_all_button.SetForegroundColour(COLOR_LIGHT)
-        # select_all_button.SetFont(BTN_FONT)
+        select_all_button.SetBackgroundColour(wx.Colour(144, 147, 153)) # 灰色
+        select_all_button.SetForegroundColour(wx.WHITE)
         select_all_button.Bind(wx.EVT_BUTTON, self.on_select_all)
         top_button_sizer.Add(select_all_button, 0, wx.ALL, 5)
 
         # Add '批量运行' button
         batch_run_button = wx.Button(self.panel, label="批量运行", size=wx.Size(-1, BTN_HEIGHT))
-        # batch_run_button.SetBackgroundColour(COLOR_BLUE)
-        # batch_run_button.SetForegroundColour(COLOR_LIGHT)
+        batch_run_button.SetBackgroundColour(wx.Colour(64, 158, 255)) # 蓝色
+        batch_run_button.SetForegroundColour(wx.WHITE)
         batch_run_button.Bind(wx.EVT_BUTTON, self.on_batch_run)
         top_button_sizer.Add(batch_run_button, 0, wx.ALL, 5)
 
@@ -128,23 +86,20 @@ class MainFrame(wx.Frame):
         batch_delete_button = wx.Button(self.panel, label="批量删除", size=wx.Size(-1, BTN_HEIGHT))
         batch_delete_button.SetBackgroundColour(wx.RED)
         batch_delete_button.SetForegroundColour(wx.WHITE)
-
         batch_delete_button.Bind(wx.EVT_BUTTON, self.on_batch_delete)
         top_button_sizer.Add(batch_delete_button, 0, wx.ALL, 5)
 
         # Add '批量取消' button
         batch_cancel_button = wx.Button(self.panel, label="批量取消", size=wx.Size(-1, BTN_HEIGHT))
-        # batch_cancel_button.SetBackgroundColour(COLOR_PRIMARY)
+        batch_cancel_button.SetBackgroundColour(wx.Colour(230, 162, 60))  # 橙色
         batch_cancel_button.SetForegroundColour(wx.WHITE)
-        # batch_cancel_button.SetFont(BTN_FONT)
         batch_cancel_button.Bind(wx.EVT_BUTTON, self.on_batch_cancel)
         top_button_sizer.Add(batch_cancel_button, 0, wx.ALL, 5)
 
         # Add '批量重试' button
         batch_retry_button = wx.Button(self.panel, label="批量重试", size=wx.Size(-1, BTN_HEIGHT))
-        # batch_retry_button.SetBackgroundColour(COLOR_ACCENT)
+        batch_retry_button.SetBackgroundColour(wx.Colour(157, 89, 255))   # 紫色
         batch_retry_button.SetForegroundColour(wx.WHITE)
-        # batch_retry_button.SetFont(BTN_FONT)
         batch_retry_button.Bind(wx.EVT_BUTTON, self.on_batch_retry)
         top_button_sizer.Add(batch_retry_button, 0, wx.ALL, 5)
         top_button_sizer.AddStretchSpacer(1)
@@ -159,6 +114,11 @@ class MainFrame(wx.Frame):
 
         # 只需设置为布尔类型即可，去掉自定义渲染器和编辑器
         self.grid.SetColFormatBool(0)
+        # 正确方式：为checkbox列设置GridCellAttr并指定renderer/editor
+        bool_attr = wx.grid.GridCellAttr()
+        bool_attr.SetRenderer(wx.grid.GridCellBoolRenderer())
+        bool_attr.SetEditor(wx.grid.GridCellBoolEditor())
+        self.grid.SetColAttr(0, bool_attr)
         # 设置除第一列外其它列为只读
         for col in range(1, self.grid.GetNumberCols()):
             attr = wx.grid.GridCellAttr()
@@ -190,16 +150,6 @@ class MainFrame(wx.Frame):
         self.total_pages = 1
         self.total_tasks = 0
 
-        # 设置表格列宽，任务ID和提示词更宽
-        self.grid.SetColSize(0, 40)
-        self.grid.SetColSize(1, 300)  # 任务ID列宽
-        self.grid.SetColSize(2, 425)  # 提示词列宽
-        self.grid.SetColSize(3, 80)
-        self.grid.SetColSize(4, 150)
-        self.grid.SetColSize(5, 90)
-        self.grid.SetColSize(6, 90)
-        self.grid.SetColSize(7, 120)
-        # self.grid.SetColSize(8, 350)
         # 设置提示词列支持自动换行
         prompt_col = 1
         for row in range(self.grid.GetNumberRows()):
@@ -385,7 +335,7 @@ class MainFrame(wx.Frame):
             for i, task in enumerate(tasks):
                 self.grid.SetRowSize(i, 45)
                 # 初始化复选框状态
-                self.grid.SetCellValue(i, 0, '0')  # 使用'0'字符串，兼容wxGridCellBoolEditor
+                #self.grid.SetCellValue(i, 0, '0')  # 使用'0'字符串，兼容wxGridCellBoolEditor
                 self.grid.SetCellValue(i, 1, str(task.get('task_id','')))
                 self.grid.SetCellValue(i, 2, str(task.get('prompt', '')))
                 self.grid.SetCellValue(i, 3, str(task.get('ratio', '')))
@@ -393,7 +343,7 @@ class MainFrame(wx.Frame):
                 self.grid.SetCellValue(i, 5, str(task.get('video_duration', '')))
                 self.grid.SetCellValue(i, 6, str(task.get('video_nums', '')))
                 self.grid.SetCellValue(i, 7, str(task.get('task_status', '')))
-                # 设置交替背景色和文字居中（不加粗），只对0~7列设置attr
+                # 设置交替背景色��文字居中（不加粗），只对0~7列设置attr
                 for c in range(self.grid.GetNumberCols()-1):
                     if i % 2 == 0:
                         self.grid.SetCellBackgroundColour(i, c, wx.Colour(250, 250, 250))  # 浅灰
@@ -627,18 +577,18 @@ class MainFrame(wx.Frame):
         is_all_selected = all(self.grid.GetCellValue(row, 0) in (True, '1', 1) for row in range(self.grid.GetNumberRows()))
         if is_all_selected:
             for row in range(self.grid.GetNumberRows()):
-                self.grid.SetCellValue(row, 0, '0')
+                self.grid.SetCellValue(row, 0, '')  # 取消全选，必须用空字符串
             btn.SetLabel("全选")
         else:
             for row in range(self.grid.GetNumberRows()):
-                self.grid.SetCellValue(row, 0, '1')
+                self.grid.SetCellValue(row, 0, '1')  # 全选，必须用'1'
             btn.SetLabel("取消全选")
 
     def on_batch_run(self, event):
         """批量运行任务，只运行状态为pending/待运行的任务"""
         selected_task_ids = []
         for row in range(self.grid.GetNumberRows()):
-            if self.grid.GetCellValue(row, 0) in (True, '1', 1):
+            if self.grid.GetCellValue(row, 0) == '1':
                 status = self.grid.GetCellValue(row, 7)
                 if status in ("pending", "待运行"):
                     task_id = self.grid.GetCellValue(row, 1)
@@ -703,18 +653,38 @@ class MainFrame(wx.Frame):
 
     def run_task_by_id(self, task_id):
         """Run a single task by its ID."""
-        session = self.db_manager.get_session()
         try:
-            task_db = session.query(DBTask).filter_by(id=task_id).first()
-            if task_db:
-                task_db.status = "运行中"
-                session.commit()
-                threading.Thread(target=self.simulate_task_run, args=(task_db.id,)).start()
+            # 先更新数据库任务状态为排队中
+            success, task = VideoTaskDBService.update_task_status(task_id, "queued", "")
+            if not success:
+                wx.MessageBox(f"运行任务：{task_id} 失败", "错误", wx.OK | wx.ICON_ERROR)
+                return
+            request = ImageToVideoRequest(
+                prompt=task.prompt,
+                ratio=task.ratio,
+                model=task.model_name,
+                seconds=task.video_duration,
+                numbers=task.video_nums,
+            )
+            user = UserDBService.get_user()
+            submit_success, submit_result = generate_video_for_client(request, user.token, task_id)
+            if not submit_success:
+                if submit_result.find("UnauthorizedError") != -1:
+                    wx.MessageBox(f"token已失效，请到设置页面重新更新token", "提示", wx.OK | wx.ICON_ERROR)
+                    return
+                wx.MessageBox(f"任务 {task_id} 提交失败: {submit_result}", "错误", wx.OK | wx.ICON_ERROR)
+                return
+
         except Exception as e:
-            session.rollback()
             wx.MessageBox(f"运行任务 {task_id} 失败: {e}", "错误", wx.OK | wx.ICON_ERROR)
-        finally:
-            session.close()
+
+    def on_grid_cell_changed(self, event):
+        # 不要在此事件里再SetCellValue，否则会递归和状态错乱，直接跳过即可
+        event.Skip()
+
+
+
+
 
 
 
