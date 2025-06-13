@@ -4,7 +4,7 @@ from loguru import logger
 
 from models.ImageToVideoRequest import ImageToVideoRequest
 from models.TextToImageRequest import TextToImageRequest
-from models.db.video_task_excutions import VideoTaskExecution
+from service.db.video_task_db_service import VideoTaskDBService
 
 from service.runway import (
     submit_generate_image_task,
@@ -73,7 +73,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
                                 authorization: str = Header(None, description="Runway授权令牌"), task_id: str = None):
     logger.info(f"Starting video generation task for team_id: {team_id}, request: {request.model_dump_json(exclude_none=True)}")
     image_url_for_videos = request.image_url.split(',') if request.image_url else []
-    VideoTaskExecution.UpdateTaskStatus(task_id=task_id, status='started', video_url='')
+    VideoTaskDBService.update_task_status(task_id=task_id, status='started', video_url='')
     # Step 1-3: Generate image if no image_url is provided
     if len(image_url_for_videos) == 0:
         logger.info("No image_url provided, proceeding to generate image first.")

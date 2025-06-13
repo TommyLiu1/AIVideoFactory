@@ -42,3 +42,7 @@ runway_default_auth_token =  _cfg.get("runway_default_auth_token", "")
 video_default_model = _cfg.get("runway_video_model", "")
 video_default_model_alias = _cfg.get("runway_video_model_alias", "")
 image_default_model = _cfg.get("runway_image_model", "")
+
+DeepSeek_api_key = _cfg.get("DEEP_SEEK_API_KEY", "")
+DeepSeek_api_url = _cfg.get("DEEP_SEEK_BASE_URL", "")
+DeepSeek_api_model = _cfg.get("DEEP_SEEK_MODEL", "")

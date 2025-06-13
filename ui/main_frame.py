@@ -1,18 +1,17 @@
 import wx
 import wx.grid as gridlib
-
-from controllers.v1.VideoGenerateController import generate_video_for_client
+import os
+import subprocess
+from controllers.v1.VideoGenerateController import generate_video_for_client, rerun_job_for_client, cancel_job_for_client
 from models.ImageToVideoRequest import ImageToVideoRequest
 from service.db.user_db_service import UserDBService
 from ui.add_task_dialog import AddTaskDialog
-import threading
-import time
-
+import asyncio
 # Import SQLAlchemy components and Task model
 from utils.sqlite_manager import SQLAlchemyManager  # Rename Task to avoid conflict with local Task class
 from models.db.video_task_excutions import VideoTaskExecution as DBTask
 from service.db.video_task_db_service import VideoTaskDBService
-
+from loguru import logger
 # --- Custom Styling Colors (Element UI inspired) ---
 ELEM_PRIMARY = wx.Colour(64, 158, 255)  # Element UI default blue
 ELEM_SUCCESS = wx.Colour(103, 194, 58)  # Green
@@ -46,6 +45,7 @@ class MainFrame(wx.Frame):
         # Load initial tasks
         self.refresh_task_list()
         self.create_menu_bar()
+
 
     def on_size(self, event):
         self.Layout()
@@ -102,6 +102,24 @@ class MainFrame(wx.Frame):
         batch_retry_button.SetForegroundColour(wx.WHITE)
         batch_retry_button.Bind(wx.EVT_BUTTON, self.on_batch_retry)
         top_button_sizer.Add(batch_retry_button, 0, wx.ALL, 5)
+
+
+
+        # Add '刷新' button
+        refresh_button = wx.Button(self.panel, label="刷新", size=wx.Size(-1, BTN_HEIGHT))
+        refresh_button.SetBackgroundColour(wx.Colour(255, 193, 7))  # 黄色，与前面按钮区分
+        refresh_button.SetForegroundColour(wx.Colour(0, 0, 0))      # 黑色字体
+        refresh_button.Bind(wx.EVT_BUTTON, self.on_refresh_task)
+        top_button_sizer.Add(refresh_button, 0, wx.ALL, 5)
+
+        # 任务状态过滤下拉框
+        status_choices = ["全部", "待运行", "排队中", "运行中", "已完成", "已取消", "失败"]
+        self.status_filter_choice = wx.Choice(self.panel, choices=status_choices, size=wx.Size(100, -1))
+        self.status_filter_choice.SetSelection(0)
+        self.status_filter_choice.Bind(wx.EVT_CHOICE, self.on_status_filter_change)
+        top_button_sizer.Add(wx.StaticText(self.panel, label="状态过滤:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        top_button_sizer.Add(self.status_filter_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 2)
+
         top_button_sizer.AddStretchSpacer(1)
         main_sizer.Add(top_button_sizer, 0, wx.EXPAND | wx.TOP | wx.LEFT | wx.RIGHT, 5)
 
@@ -135,11 +153,16 @@ class MainFrame(wx.Frame):
         self.prev_btn = wx.Button(self.panel, label="上一页")
         self.next_btn = wx.Button(self.panel, label="下一页")
         self.page_label = wx.StaticText(self.panel, label="第 1/1 页")
-        self.prev_btn.Bind(wx.EVT_BUTTON, self.on_prev_page)
-        self.next_btn.Bind(wx.EVT_BUTTON, self.on_next_page)
+        self.page_size_choice = wx.Choice(self.panel, choices=[str(i) for i in [10, 20, 30, 40, 50]], size=wx.Size(70, -1))
+        self.page_size_choice.SetSelection(0)  # 默认10
+        self.page_size_choice.Bind(wx.EVT_CHOICE, self.on_page_size_change)
         pagination_sizer.Add(self.prev_btn, 0, wx.ALL, 5)
         pagination_sizer.Add(self.next_btn, 0, wx.ALL, 5)
         pagination_sizer.Add(self.page_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        pagination_sizer.Add(wx.StaticText(self.panel, label="每页数量:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        pagination_sizer.Add(self.page_size_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 2)
+        self.prev_btn.Bind(wx.EVT_BUTTON, self.on_prev_page)
+        self.next_btn.Bind(wx.EVT_BUTTON, self.on_next_page)
         main_sizer.Add(pagination_sizer, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
 
         self.panel.SetSizer(main_sizer)
@@ -151,7 +174,7 @@ class MainFrame(wx.Frame):
         self.total_tasks = 0
 
         # 设置提示词列支持自动换行
-        prompt_col = 1
+        prompt_col = 2
         for row in range(self.grid.GetNumberRows()):
             attr = self.grid.GetOrCreateCellAttr(row, prompt_col)
             attr.SetAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
@@ -188,20 +211,15 @@ class MainFrame(wx.Frame):
         button.SetBackgroundColour(button.original_bg_color)
         button.Refresh()
 
-    def get_task_by_row(self, row):
+    def get_task_id_by_row(self, row):
         if row != -1 and self.grid.GetNumberRows() > row:
             task_id_str = self.grid.GetCellValue(row, 1)  # 任务ID在第1列
-            try:
-                task = VideoTaskDBService.get_task_by_id(task_id_str)
-                return task
-            except Exception:
-                return None
-        return None
+            return task_id_str
 
-    def get_selected_task(self):
+    def get_selected_task_id(self):
         # 兼容旧代码，依然保留
         selected_row = self.grid.GetGridCursorRow()
-        return self.get_task_by_row(selected_row)
+        return self.get_task_id_by_row(selected_row)
 
     def on_grid_select_cell(self, event):
         row = event.GetRow()
@@ -217,13 +235,16 @@ class MainFrame(wx.Frame):
 
     def on_grid_cell_right_click(self, event):
         row = event.GetRow()
-        self.grid.SelectRow(row)  # 选中右键的行
+        self.grid.SelectRow(row)
 
         # 获取当前行的任务状态
-        task, session = self.get_selected_task()
-        if not task:
+        task_id = self.get_task_id_by_row(row)
+        if not task_id:
             return
-        status = task.task_status
+        status, err = VideoTaskDBService.query_task_status_by_id(task_id)
+        if err:
+            wx.MessageBox(f"查询任务状态失败: {err}", "错误", wx.OK | wx.ICON_ERROR, self)
+            return
         # 运行中状态不弹出菜单
         if status in ("started", "运行中"):
             return
@@ -250,12 +271,12 @@ class MainFrame(wx.Frame):
             menu_retry.SetFont(font)
             menu_detail.SetFont(font)
         elif status in ("finished", "已完成"):
-            menu_download = menu.Append(wx.ID_ANY, "下载结果")
+            menu_view_video = menu.Append(wx.ID_ANY, "查看视频")
             menu.AppendSeparator()
             menu_delete = menu.Append(wx.ID_ANY, "删除任务")
-            self.Bind(wx.EVT_MENU, self.on_download_task, menu_download)
+            self.Bind(wx.EVT_MENU, self.on_view_video_task, menu_view_video)
             self.Bind(wx.EVT_MENU, self.on_delete_task, menu_delete)
-            menu_download.SetFont(font)
+            menu_view_video.SetFont(font)
             menu_delete.SetFont(font)
         else:
             return  # 其它状态不弹出菜单
@@ -313,10 +334,38 @@ class MainFrame(wx.Frame):
     def on_new_task(self, event):
         self.on_add_task(event)
 
-    def refresh_task_list(self):
+    def on_status_filter_change(self, event):
+        self.current_page = 1
+        self.refresh_task_list()
+
+    def refresh_task_list(self, is_show_loading=True):
+        loading = None
         try:
+            # if is_show_loading:
+            #     loading = wx.BusyInfo("正在加载任务列表，请稍候...", parent=self)
+            #     wx.YieldIfNeeded()
+            task_status_map = {
+                "pending": "待运行",
+                "queued": "排队中",
+                "started": "运行中",
+                "finished": "已完成",
+                "canceled": "已取消",
+                "failed": "失败"
+            }
+            status_color_map = {
+                "失败": wx.Colour(255, 59, 48),      # 红色
+                "已完成": wx.Colour(40, 167, 69),    # 绿色
+                "运行中": wx.Colour(64, 158, 255),   # 蓝色
+                "排队中": wx.Colour(230, 162, 60),   # 橙色
+                "待运行": wx.Colour(144, 147, 153), # 灰色
+                "已取消": wx.Colour(144, 147, 153), # 灰色
+            }
             self.grid.ClearGrid()
             all_tasks = VideoTaskDBService.query_all_task()
+            # 状态过滤
+            status_filter = self.status_filter_choice.GetStringSelection() if hasattr(self, 'status_filter_choice') else "全部"
+            if status_filter != "全部":
+                all_tasks = [t for t in all_tasks if task_status_map.get(t.get('task_status', '')) == status_filter]
             self.total_tasks = len(all_tasks)
             self.total_pages = max(1, (self.total_tasks + self.page_size - 1) // self.page_size)
             if self.current_page > self.total_pages:
@@ -342,9 +391,10 @@ class MainFrame(wx.Frame):
                 self.grid.SetCellValue(i, 4, str(task.get('model', '')))
                 self.grid.SetCellValue(i, 5, str(task.get('video_duration', '')))
                 self.grid.SetCellValue(i, 6, str(task.get('video_nums', '')))
-                self.grid.SetCellValue(i, 7, str(task.get('task_status', '')))
-                # 设置交替背景色��文字居中（不加粗），只对0~7列设置attr
-                for c in range(self.grid.GetNumberCols()-1):
+                display_status = task_status_map.get(task.get('task_status', ''))
+                self.grid.SetCellValue(i, 7, str(display_status))
+                # 设置交替背景色文字居中（不加粗），只对0~7列设置attr
+                for c in range(self.grid.GetNumberCols()):
                     if i % 2 == 0:
                         self.grid.SetCellBackgroundColour(i, c, wx.Colour(250, 250, 250))  # 浅灰
                     else:
@@ -352,63 +402,48 @@ class MainFrame(wx.Frame):
                     attr = wx.grid.GridCellAttr()
                     attr.SetAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
                     attr.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+                    # 状态栏特殊颜色
+                    if c == 7:
+                        color = status_color_map.get(display_status, wx.Colour(0,0,0))
+                        attr.SetTextColour(color)
                     self.grid.SetAttr(i, c, attr)
 
         except Exception as e:
             wx.MessageBox(f"加载任务列表失败: {e}", "数据库错误", wx.OK | wx.ICON_ERROR)
+        # finally:
+        #     if is_show_loading and loading is not None:
+        #         del loading
+        #         wx.YieldIfNeeded()
 
         return True
 
     def on_run_task(self, event):
-        task, session = self.get_selected_task()
-        if not task:
+        task_id = self.get_selected_task_id()
+        if not task_id:
             wx.MessageBox("请选择要运行的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        status = task.task_status
+        status, err = VideoTaskDBService.query_task_status_by_id(task_id)
         if status.lower() in ["started", "queued", "finished", "failed"]:
             wx.MessageBox("请选择待运行的任务运行", "警告", wx.OK | wx.ICON_WARNING, self)
             return
-        VideoTaskDBService.update_task_status(task.task_id, "pending")
-        # todo: 启动后台线程运行任务
-
-    def simulate_task_run(self, task_id):
-        session = self.db_manager.get_session()
-        try:
-            task = session.query(DBTask).filter_by(id=task_id).first()
-            if not task:
-                print(f"Task with ID {task_id} not found in simulate_task_run.")
-                return
-            duration_in_seconds = getattr(task, 'duration', 1)
-            for i in range(duration_in_seconds):
-                time.sleep(1)
-            if task.id % 2 == 0:
-                task.status = "已完成"
-                wx.CallAfter(lambda: wx.MessageBox(f"任务 {task.id} 已完成！", "任务完成", wx.OK | wx.ICON_INFORMATION, self))
-            else:
-                task.status = "失败"
-                wx.CallAfter(lambda: wx.MessageBox(f"任务 {task.id} 失败！", "任务失败", wx.OK | wx.ICON_ERROR, self))
-            session.commit()
-            wx.CallAfter(self.refresh_task_list)
-        except Exception as e:
-            session.rollback()
-            wx.CallAfter(lambda: wx.MessageBox(f"后台任务更新失败: {e}", "数据库错误", wx.OK | wx.ICON_ERROR, self))
-        finally:
-            session.close()
+        self.run_task_by_id(task_id)
 
     def on_edit_task(self, event):
-        task_to_edit, session = self.get_selected_task()
-        if not task_to_edit:
+        task_id = self.get_selected_task_id()
+        if not task_id:
             wx.MessageBox("请选择要编辑的任务", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        status = task_to_edit.task_status
+        task, session = VideoTaskDBService.get_task_by_id(task_id)
+        status = task.task_status
         if status.lower() in ["started", "queued" ,"finished","failed"]:
             wx.MessageBox("待运行的任务才能允许编辑。", "警告", wx.OK | wx.ICON_WARNING, self)
             return
-        dlg = AddTaskDialog(self, task_to_edit)
+        # 只传递 task_id，不传递 ORM 对象
+        dlg = AddTaskDialog(self, task_id=task_id)
         if dlg.ShowModal() == wx.ID_OK:
             updated_data = dlg.get_task_data()
             if updated_data:
-                task, session = VideoTaskDBService.get_task_by_id(task_to_edit.task_id)
+
                 try:
                     if task:
                         task.prompt = updated_data["prompt"]
@@ -425,136 +460,99 @@ class MainFrame(wx.Frame):
                         self.refresh_task_list()
                 except Exception as e:
                     session.rollback()
-                    wx.MessageBox(f"任务���辑失败: {e}", "数据库错误", wx.OK | wx.ICON_ERROR, self)
+                    wx.MessageBox(f"任务编辑失败: {e}", "数据库错误", wx.OK | wx.ICON_ERROR, self)
                 finally:
                     session.close()
         dlg.Destroy()
 
     def on_delete_task(self, event):
-        task_to_delete, session = self.get_selected_task()
-        if not task_to_delete:
+        task_id = self.get_selected_task_id()
+        if not task_id:
             wx.MessageBox("请选择要删除的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        status = task_to_delete.task_status
+        status, err= VideoTaskDBService.query_task_status_by_id(task_id)
+        if err:
+            wx.MessageBox(f"查询任务状态失败: {err}", "错误", wx.OK | wx.ICON_ERROR, self)
+            return
         if status.lower() in ["started", "queued"]:
             wx.MessageBox("排队中或者运行中的任务，不允许删除。", "警告", wx.OK | wx.ICON_WARNING, self)
             return
-        confirm = wx.MessageBox(f"确定要删除任务ID: {task_to_delete.task_id} 吗？", "确认删除", wx.YES_NO | wx.ICON_QUESTION, self)
+        confirm = wx.MessageBox(f"确定要删除任务ID: {task_id} 吗？", "确认删除", wx.YES_NO | wx.ICON_QUESTION, self)
         if confirm == wx.YES:
-            success, msg = VideoTaskDBService.delete_task_by_id(task_to_delete.task_id)
+            success, msg = VideoTaskDBService.delete_task_by_id(task_id)
             if success:
                 self.refresh_task_list()
             else:
                 wx.MessageBox(f"任务删除失败: {msg}", "数据库错误", wx.OK | wx.ICON_ERROR, self)
 
     def on_view_task(self, event):
-        task = self.get_selected_task()
-        if not task:
+        task_id = self.get_selected_task_id()
+        if not task_id:
             wx.MessageBox("请选择要查看的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        details = (f"任务ID: {getattr(task, 'id', '')}\n"
+        task, session = VideoTaskDBService.get_task_by_id(task_id)
+        details = (f"任务ID: {getattr(task, 'task_id', '')}\n"
                    f"Prompt: {getattr(task, 'prompt', '')}\n"
-                   f"Ratio: {getattr(task, 'ratio', '')}\n"
-                   f"模型名称: {getattr(task, 'model', '')}\n"
-                   f"时长: {getattr(task, 'duration', '')} 秒\n"
-                   f"生成数量: {getattr(task, 'generated_count', '')}\n"
-                   f"状态: {getattr(task, 'status', '')}")
-        wx.MessageBox(details, f"任务详情 - ID: {getattr(task, 'id', '')}", wx.OK | wx.ICON_INFORMATION, self)
+                   f"比例: {getattr(task, 'ratio', '')}\n"
+                   f"模型名称: {getattr(task, 'model', getattr(task, 'model_name', ''))}\n"
+                   f"时长: {getattr(task, 'duration', getattr(task, 'video_duration', ''))} 秒\n"
+                   f"生成数量: {getattr(task, 'generated_count', getattr(task, 'video_nums', ''))}\n"
+                   f"状态: {getattr(task, 'task_status', getattr(task, 'status', ''))}\n"
+                   f"失败原因: {getattr(task, 'fail_reason', getattr(task, 'error_message', getattr(task, 'status', '')))}")
+        dlg = wx.MessageDialog(self, details, "失败任务详情", wx.OK | wx.ICON_INFORMATION)
+        dlg.ShowModal()
+        dlg.Destroy()
 
-    def on_download_task(self, event):
-        task = self.get_selected_task()
-        if not task:
-            wx.MessageBox("请选择要下载的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
+    def on_view_video_task(self, event):
+        task_id = self.get_selected_task_id()
+        if not task_id:
+            wx.MessageBox("请选择要查看视频的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        if getattr(task, 'status', None) == "已完成":
-            wx.MessageBox(f"下载任务 {getattr(task, 'id', '')} 的结果...", "下载", wx.OK | wx.ICON_INFORMATION, self)
+        task, session = VideoTaskDBService.get_task_by_id(task_id)
+        video_path = getattr(task, 'video_path', None)
+        if not video_path:
+            wx.MessageBox("未找到视频文件路径。", "提示", wx.OK | wx.ICON_INFORMATION, self)
+            return
+        if os.path.exists(video_path):
+            try:
+                os.startfile(video_path)
+            except Exception:
+                try:
+                    subprocess.Popen(['explorer', '/select,', video_path])
+                except Exception as e:
+                    wx.MessageBox(f"打开视频文件失败: {e}", "错误", wx.OK | wx.ICON_ERROR, self)
         else:
-            wx.MessageBox("只有已完成的任务才能下载。", "提示", wx.OK | wx.ICON_WARNING, self)
+            wx.MessageBox("视频文件不存在。", "提示", wx.OK | wx.ICON_INFORMATION, self)
 
     def on_cancel_task(self, event):
-        task = self.get_selected_task()
-        if not task:
+        task_id = self.get_selected_task_id()
+        if not task_id:
             wx.MessageBox("请选择要取消的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        if getattr(task, 'task_status', getattr(task, 'status', '')) in ("started", "运行中"):
-            session = self.db_manager.get_session()
-            try:
-                task_db = session.query(DBTask).filter_by(id=task.id).first()
-                if task_db:
-                    task_db.task_status = "cancelled"
-                    session.commit()
-                    wx.MessageBox("任务已取消。", "提示", wx.OK | wx.ICON_INFORMATION, self)
-                    self.refresh_task_list()
-            except Exception as e:
-                session.rollback()
-                wx.MessageBox(f"取消任务失败: {e}", "数据库错误", wx.OK | wx.ICON_ERROR, self)
-            finally:
-                session.close()
-        else:
-            wx.MessageBox("只有运行中的任务才能取消。", "提示", wx.OK | wx.ICON_WARNING, self)
+        success, err = cancel_job_for_client(task_id)
+        if not success:
+            wx.MessageBox(f"取消任务失败: {err}", "错误", wx.OK | wx.ICON_ERROR, self)
+            return
+        # 更新任务状态为已取消
+        success, msg = VideoTaskDBService.update_task_status(task_id, "canceled")
+        if not success:
+            wx.MessageBox(f"更新任务状态失败: {msg}", "错误", wx.OK | wx.ICON_ERROR, self)
+            return
 
     def on_retry_task(self, event):
-        task = self.get_selected_task()
-        if not task:
+        task_id = self.get_selected_task_id()
+        if not task_id:
             wx.MessageBox("请选择要重试的任务。", "提示", wx.OK | wx.ICON_INFORMATION, self)
             return
-        if getattr(task, 'task_status', getattr(task, 'status', '')) in ("failed", "失败"):
-            session = self.db_manager.get_session()
-            try:
-                task_db = session.query(DBTask).filter_by(id=task.id).first()
-                if task_db:
-                    task_db.task_status = "pending"
-                    session.commit()
-                    wx.MessageBox("任务已重试，状态已重置为待运行。", "提示", wx.OK | wx.ICON_INFORMATION, self)
-                    self.refresh_task_list()
-            except Exception as e:
-                session.rollback()
-                wx.MessageBox(f"重试任务失败: {e}", "数据库错误", wx.OK | wx.ICON_ERROR, self)
-            finally:
-                session.close()
-        else:
-            wx.MessageBox("只有失败的任务才能重试。", "提示", wx.OK | wx.ICON_WARNING, self)
-
-    # def on_action_cell_click(self, event):
-    #     row = event.GetRow()
-    #     col = event.GetCol()
-    #     if col != 8:
-    #         event.Skip()
-    #         return
-    #     renderer = self.grid.GetCellRenderer(row, col)
-    #     if not isinstance(renderer, ActionButtonRenderer):
-    #         event.Skip()
-    #         return
-    #     mouse_pos = event.GetPosition()
-    #     rect = self.grid.CellToRect(row, col)
-    #     rel_x = mouse_pos.x
-    #     rel_y = mouse_pos.y
-    #     # 重新计算按钮rect，确保与Draw一致（相对单元格左上角）
-    #     btn_width = renderer.btn_width
-    #     btn_height = renderer.btn_height
-    #     btn_gap = renderer.btn_gap
-    #     x = 10
-    #     y = (rect.height - btn_height) // 2
-    #     for idx, label in enumerate(renderer.btn_labels):
-    #         btn_rect = wx.Rect(x, y, btn_width, btn_height)
-    #         if btn_rect.Contains(rel_x, rel_y):
-    #             if label == "运行":
-    #                 self.on_run_task(event)
-    #             elif label == "编辑":
-    #                 self.on_edit_task(event)
-    #             elif label == "删除":
-    #                 self.on_delete_task(event)
-    #             elif label == "取消":
-    #                 self.on_cancel_task(event)
-    #             elif label == "重试":
-    #                 self.on_retry_task(event)
-    #             elif label == "下载":
-    #                 self.on_download_task(event)
-    #             elif label == "失败详情":
-    #                 self.on_view_task(event)
-    #             return
-    #         x += btn_width + btn_gap
-    #     event.Skip()
+        success, err = rerun_job_for_client(task_id)
+        if not success:
+            wx.MessageBox(f"重试任务失败: {err}", "错误", wx.OK | wx.ICON_ERROR, self)
+            return
+        # 更新任务状态为待运行
+        success, msg = VideoTaskDBService.update_task_status(task_id, "queued")
+        if not success:
+            wx.MessageBox(f"更新任务状态失败: {msg}", "错误", wx.OK | wx.ICON_ERROR, self)
+            return
 
     def on_prev_page(self, event):
         if self.current_page > 1:
@@ -590,7 +588,7 @@ class MainFrame(wx.Frame):
         for row in range(self.grid.GetNumberRows()):
             if self.grid.GetCellValue(row, 0) == '1':
                 status = self.grid.GetCellValue(row, 7)
-                if status in ("pending", "待运行"):
+                if status in ("pending",):
                     task_id = self.grid.GetCellValue(row, 1)
                     selected_task_ids.append(task_id)
         if not selected_task_ids:
@@ -605,7 +603,7 @@ class MainFrame(wx.Frame):
         for row in range(self.grid.GetNumberRows()):
             if self.grid.GetCellValue(row, 0) in (True, '1', 1):
                 status = self.grid.GetCellValue(row, 7)
-                if status in ("pending", "待运行", "failed", "失败", "finished", "已完成"):
+                if status in ("pending", "failed", "finished"):
                     task_id = self.grid.GetCellValue(row, 1)
                     deletable_task_ids.append(task_id)
         if not deletable_task_ids:
@@ -623,15 +621,26 @@ class MainFrame(wx.Frame):
         for row in range(self.grid.GetNumberRows()):
             if self.grid.GetCellValue(row, 0) in (True, '1', 1):
                 status = self.grid.GetCellValue(row, 7)
-                if status in ("queued", "排队中"):
+                if status in ("queued",):
                     task_id = self.grid.GetCellValue(row, 1)
                     cancelable_task_ids.append(task_id)
         if not cancelable_task_ids:
-            wx.MessageBox("请选择状态为运行中的任务进行批量取消。", "提示", wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox("请选择状态为排队中的任务进行批量取消。", "提示", wx.OK | wx.ICON_INFORMATION)
             return
         confirm = wx.MessageBox(f"确定要批量取消选中的{len(cancelable_task_ids)}个任务吗？", "批量取消确认", wx.YES_NO | wx.ICON_QUESTION, self)
         if confirm == wx.YES:
-            # todo: 实现批量取消逻辑
+            cancel_failed_task_ids = []
+            for task_id in cancelable_task_ids:
+                success, err = cancel_job_for_client(task_id)
+                if not success:
+                    cancel_failed_task_ids.append(task_id)
+                    continue
+                # 更新任务状态为已取消
+                success, msg = VideoTaskDBService.update_task_status(task_id, "canceled")
+                if not success:
+                    logger.error(f"on_batch_cancel, taskid:{task_id} 更新状态失败: {msg}")
+
+            wx.MessageBox(f"批量取消任务完成，失败的任务ID: {', '.join(cancel_failed_task_ids)}", "提示", wx.OK | wx.ICON_INFORMATION, self)
             self.refresh_task_list()
 
     def on_batch_retry(self, event):
@@ -649,38 +658,67 @@ class MainFrame(wx.Frame):
         confirm = wx.MessageBox(f"确定要批量重试选中的{len(retryable_task_ids)}个任务吗？", "批量重试确认", wx.YES_NO | wx.ICON_QUESTION, self)
         if confirm == wx.YES:
             # todo: 实现批量重试逻辑
+            retry_failed_task_ids = []
+            for task_id in retryable_task_ids:
+                success, err = rerun_job_for_client(task_id)
+                if not success:
+                    retry_failed_task_ids.append(task_id)
+                    continue
+                # 更新任务状态为待运行
+                success, msg = VideoTaskDBService.update_task_status(task_id, "queued")
+                if not success:
+                    logger.error(f"on_batch_retry, taskid:{task_id} 更新状态失败: {msg}")
+                    continue
             self.refresh_task_list()
+    def on_refresh_task(self, event):
+        """刷新任务列表"""
+        self.refresh_task_list()
+
+    def on_page_size_change(self, event):
+        # 获取下拉框当前选择的每页数量
+        selected_size = self.page_size_choice.GetStringSelection()
+        try:
+            self.page_size = int(selected_size)
+        except Exception:
+            self.page_size = 10  # 默认回退
+        self.current_page = 1  # 切换分页时回到第一页
+        self.refresh_task_list()
 
     def run_task_by_id(self, task_id):
-        """Run a single task by its ID."""
-        try:
-            # 先更新数据库任务状态为排队中
-            success, task = VideoTaskDBService.update_task_status(task_id, "queued", "")
-            if not success:
-                wx.MessageBox(f"运行任务：{task_id} 失败", "错误", wx.OK | wx.ICON_ERROR)
-                return
-            request = ImageToVideoRequest(
-                prompt=task.prompt,
-                ratio=task.ratio,
-                model=task.model_name,
-                seconds=task.video_duration,
-                numbers=task.video_nums,
-            )
-            user = UserDBService.get_user()
-            submit_success, submit_result = generate_video_for_client(request, user.token, task_id)
-            if not submit_success:
-                if submit_result.find("UnauthorizedError") != -1:
-                    wx.MessageBox(f"token已失效，请到设置页面重新更新token", "提示", wx.OK | wx.ICON_ERROR)
+        """Run a single task by its ID. 保证session有效"""
+        user_dict = UserDBService.get_user()
+        token = user_dict.get('token', '')
+        if not token:
+            wx.CallAfter(wx.MessageBox, "请先到设置页面设置token", "提示", wx.OK | wx.ICON_INFORMATION)
+            return
+        async def _run():
+            try:
+                success, task_dict = VideoTaskDBService.update_task_status(task_id, "queued")
+                if not success:
+                    wx.CallAfter(wx.MessageBox, f"更新任务 {task_id} 状态失败", "错误", wx.OK | wx.ICON_ERROR)
                     return
-                wx.MessageBox(f"任务 {task_id} 提交失败: {submit_result}", "错误", wx.OK | wx.ICON_ERROR)
-                return
+                request = ImageToVideoRequest(
+                    prompt=task_dict['prompt'],
+                    ratio=task_dict['ratio'],
+                    model=task_dict['model'],
+                    seconds=task_dict['video_duration'],
+                    numbers=task_dict['video_nums'],
+                )
 
-        except Exception as e:
-            wx.MessageBox(f"运行任务 {task_id} 失败: {e}", "错误", wx.OK | wx.ICON_ERROR)
+                submit_success, submit_result = await generate_video_for_client(request, token, task_id)
+                if not submit_success:
+                    if submit_result.find("UnauthorizedError") != -1:
+                        wx.CallAfter(wx.MessageBox, f"token已失效，请到设置页面重新更新token", "提示", wx.OK | wx.ICON_ERROR)
+                        return
+                    wx.CallAfter(wx.MessageBox, f"任务 {task_id} 提交失败,请稍后重试", "错误", wx.OK | wx.ICON_ERROR)
+                    return
+            except Exception as e:
+                wx.CallAfter(wx.MessageBox, f"运行任务 {task_id} 失败: {e}", "错误", wx.OK | wx.ICON_ERROR)
+        try:
+            asyncio.create_task(_run())
+        except RuntimeError:
+            asyncio.run(_run())
 
-    def on_grid_cell_changed(self, event):
-        # 不要在此事件里再SetCellValue，否则会递归和状态错乱，直接跳过即可
-        event.Skip()
 
 
 

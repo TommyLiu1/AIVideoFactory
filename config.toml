@@ -18,4 +18,7 @@ runway_profile_url = "https://api.runwayml.com/v1/profile"
 runway_estimate_url = "https://api.runwayml.com/v1/billing/estimate_feature_cost_credits"
 
 mysql_db_url = "mysql+pymysql://root:dw123456@localhost:3306/db_video_factory?charset=utf8mb4"
+DEEP_SEEK_API_KEY = "sk-6b2a057fad7c435e9e5aa56c5cced1a7"
+DEEP_SEEK_BASE_URL = "https://api.deepseek.com"
+DEEP_SEEK_MODEL = "deepseek-chat"
 

@@ -26,7 +26,7 @@ class VideoTaskDBService:
             if video_url:
                 task.video_url = video_url
             session.commit()
-            return True, task
+            return True, task.to_dict()
         except Exception as e:
             session.rollback()
             logger.exception(f"更新任务状态失败: {e}")
@@ -50,11 +50,11 @@ class VideoTaskDBService:
             )
             session.add(task)
             session.commit()
-            return True, None
+            return True, task.to_dict()
         except Exception as e:
             session.rollback()
             logger.exception(f"添加任务失败: {e}")
-            return False, str(e)
+            return False, None
         finally:
             session.close()
 
@@ -68,6 +68,22 @@ class VideoTaskDBService:
             session.close()
             logger.exception(f"根据ID获取任务失败: {e}")
             return None, None
+
+    @classmethod
+    def query_task_status_by_id(cls, task_id):
+        session = SQLAlchemyManager().get_session()
+        try:
+            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
+            if task:
+                return task.task_status, None
+            else:
+                logger.warning(f"查询任务状态失败，任务不存在: {task_id}")
+                return None, '任务不存在'
+        except Exception as e:
+            logger.exception(f"查询任务状态失败: {e}")
+            return None, str(e)
+        finally:
+            session.close()
 
     @classmethod
     def delete_task_by_id(cls, task_id):
@@ -85,5 +101,28 @@ class VideoTaskDBService:
             session.rollback()
             logger.exception(f"删除任务失败: {e}")
             return False, str(e)
+        finally:
+            session.close()
+
+    @classmethod
+    def update_task(cls, task_id, prompt, model, ratio, duration, video_nums):
+        session = SQLAlchemyManager().get_session()
+        try:
+            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
+            if not task:
+                return False, None
+            task.prompt = prompt
+            task.model = model
+            task.ratio = ratio
+            task.video_duration = duration
+            task.video_nums = video_nums
+            # 编辑后重置状态为pending
+            task.task_status = 'pending'
+            session.commit()
+            return True, task.to_dict()
+        except Exception as e:
+            session.rollback()
+            logger.exception(f"更新任务失败: {e}")
+            return False, None
         finally:
             session.close()

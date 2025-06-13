@@ -51,10 +51,10 @@ class SettingsDialog(wx.Dialog):
         self.Bind(wx.EVT_BUTTON, self.on_ok, ok_btn)
 
         # 读取数据库token
-        user = UserDBService.get_user()
-        if user and user.token:
-            self.token_ctrl.SetValue(user.token)
-            self.video_path_ctrl.SetValue(user.video_save_path)
+        user_dict = UserDBService.get_user()
+        if user_dict and user_dict["token"]:
+            self.token_ctrl.SetValue(user_dict["token"])
+            self.video_path_ctrl.SetValue(user_dict["video_save_path"])
 
     def on_ok(self, event):
         token = self.token_ctrl.GetValue().strip()

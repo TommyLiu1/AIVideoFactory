@@ -1,16 +1,19 @@
 import wx
+from openai import OpenAI
+from config.config import DeepSeek_api_model, DeepSeek_api_key, DeepSeek_api_url
+from service.db.video_task_db_service import VideoTaskDBService
 
 class AddTaskDialog(wx.Dialog):
-    def __init__(self, parent, existing_task=None):
+    def __init__(self, parent, existing_task=None, task_id=None):
         super().__init__(parent, title="新增/编辑任务", size=wx.Size(540, 460))
         self.panel = wx.Panel(self)
         self.panel.SetBackgroundColour(wx.Colour("#FFFFFF"))  # 设置面板背景颜色
-        self.existing_task = existing_task
+        self.task_id = task_id
         self.task_data = {}
         self.create_widgets()
         self.CentreOnParent()
 
-        if self.existing_task:
+        if self.task_id:
             self.load_existing_task_data()
 
     def create_widgets(self):
@@ -27,6 +30,7 @@ class AddTaskDialog(wx.Dialog):
 
         # Optimize Button
         optimize_btn = wx.Button(self.panel, label="提示词优化", size=wx.Size(120, 30))
+        optimize_btn.Bind(wx.EVT_BUTTON, self.on_optimize_prompt)
         optimize_btn.SetBackgroundColour(wx.Colour("#007ACC"))  # 蓝色
         optimize_btn.SetForegroundColour(wx.Colour("#FFFFFF"))  # 白色
         grid_sizer.Add(optimize_btn, pos=(1, 2), flag=wx.ALIGN_RIGHT  | wx.ALL, border=5)
@@ -81,28 +85,80 @@ class AddTaskDialog(wx.Dialog):
         cancel_btn.Bind(wx.EVT_BUTTON, self.on_cancel)
 
     def load_existing_task_data(self):
-        if self.existing_task:
-            self.prompt_text.SetValue(self.existing_task.prompt)
-            self.ratio_choice.SetStringSelection(self.existing_task.ratio)
-            self.model_choice.SetStringSelection(self.existing_task.model)
-            self.duration_choice.SetStringSelection(str(self.existing_task.video_duration))
-            self.nums_choice.SetStringSelection(str(self.existing_task.video_nums))
-            # 其他字段加载
+        if self.task_id:
+            from service.db.video_task_db_service import VideoTaskDBService
+            task, session = VideoTaskDBService.get_task_by_id(self.task_id)
+            if task:
+                self.prompt_text.SetValue(getattr(task, 'prompt', ''))
+                self.ratio_choice.SetStringSelection(getattr(task, 'ratio', '9:16'))
+                self.model_choice.SetStringSelection(getattr(task, 'model', 'gen3a_turbo'))
+                self.duration_choice.SetStringSelection(str(getattr(task, 'video_duration', '5')))
+                self.nums_choice.SetStringSelection(str(getattr(task, 'video_nums', '1')))
+            session.close()
+
+    def on_optimize_prompt(self, event):
+        user_prompt = self.prompt_text.GetValue()
+        if not user_prompt.strip():
+            wx.MessageBox('请输入需要优化的提示词', '提示', wx.OK | wx.ICON_INFORMATION)
+            return
+        optimization_instruction ="""
+            你是一个提示词优化专家，请优化以下用户输入的提示词，使其更清晰、具体，并符合最佳实践。
+            优化后的提示词应：
+            - 明确目标（如：是生成视频的文案）
+            - 包含必要的细节（如：画面内容、风格、受众）
+            - 避免模糊表述
+            只需返回优化后的提示词，无需额外解释。
+            用户提供的提示词：
+            """ + user_prompt
+
+        # 显示loading对话框
+        loading = wx.BusyInfo("正在优化提示词，请稍候...", parent=self)
+        wx.YieldIfNeeded()
+        try:
+            ai_client = OpenAI(api_key=DeepSeek_api_key, base_url=DeepSeek_api_url)
+            response = ai_client.chat.completions.create(
+                model=DeepSeek_api_model,
+                messages=[
+                    {"role": "user", "content": optimization_instruction}
+                ]
+            )
+            optimized_prompt = response.choices[0].message.content
+            self.prompt_text.SetValue(optimized_prompt)
+        except Exception as e:
+            wx.MessageBox(f'优化失败: {e}', '错误', wx.OK | wx.ICON_ERROR)
+        finally:
+            del loading
+            wx.YieldIfNeeded()
 
     def on_ok(self, event):
-        from service.db.video_task_db_service import VideoTaskDBService
+
         prompt = self.prompt_text.GetValue()
         ratio = self.ratio_choice.GetStringSelection()
         model = self.model_choice.GetStringSelection()
         duration = int(self.duration_choice.GetStringSelection())
         video_nums = int(self.nums_choice.GetStringSelection())
         run_after_add = self.run_checkbox.GetValue()
-        success, err = VideoTaskDBService.add_task(prompt, model, ratio, duration, video_nums, run_after_add)
-        if success:
-            wx.MessageBox('任务已提交！', '成功', wx.OK | wx.ICON_INFORMATION)
-            self.EndModal(wx.ID_OK)
+        parent = self.GetParent()
+        if self.task_id:
+            # 编辑模式，更新任务
+            success, task = VideoTaskDBService.update_task(self.task_id, prompt, model, ratio, duration, video_nums)
+            if success:
+                wx.MessageBox('任务已更新！', '成功', wx.OK | wx.ICON_INFORMATION)
+                if run_after_add and hasattr(parent, 'run_task_by_id'):
+                    parent.run_task_by_id(self.task_id)
+                self.EndModal(wx.ID_OK)
+            else:
+                wx.MessageBox(f'任务更新失败', '错误', wx.OK | wx.ICON_ERROR)
         else:
-            wx.MessageBox(f'任务提交失败: {err}', '错误', wx.OK | wx.ICON_ERROR)
+            # 新增模式
+            success, task_dict = VideoTaskDBService.add_task(prompt, model, ratio, duration, video_nums)
+            if success:
+                wx.MessageBox('任务已提交！', '成功', wx.OK | wx.ICON_INFORMATION)
+                if run_after_add and hasattr(parent, 'run_task_by_id'):
+                    parent.run_task_by_id(task_dict['task_id'])
+                self.EndModal(wx.ID_OK)
+            else:
+                wx.MessageBox(f'任务提交失败', '错误', wx.OK | wx.ICON_ERROR)
 
     def on_cancel(self, event):
         self.EndModal(wx.ID_CANCEL)
@@ -115,4 +171,6 @@ class AddTaskDialog(wx.Dialog):
         if retCode == wx.ID_OK:
             parent = self.GetParent()
             if hasattr(parent, 'refresh_task_list'):
-                parent.refresh_task_list()
+                parent.refresh_task_list(is_show_loading=False)
+
+

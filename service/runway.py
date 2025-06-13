@@ -87,7 +87,7 @@ async def submit_generate_video_task(request: ImageToVideoRequest, team_id: int,
         "route": "i2v",
         "text_prompt": request.prompt,
         "exploreMode": True,
-        "init_image": request.image_url,
+        "keyframes": {'image':request.image_url, 'timestamp':0},
         "assetGroupId": str(utils.get_uuid())
     })
 

@@ -10,7 +10,7 @@ from service.runway import verify_profile
 from tasks.runway_generate_video_task import generate_video_task
 from utils import utils
 from loguru import logger
-from redis import Redis, int_or_str
+from redis import Redis
 from rq.registry import FinishedJobRegistry, FailedJobRegistry
 import rq
 import requests
@@ -30,7 +30,7 @@ async def generate_video_for_client(request: ImageToVideoRequest, authorization:
         if result_code != 200:
             return False, result_str
         team_id = result_str
-        job = generate_videos_queue.enqueue(generate_video_task,
+        job = generate_videos_queue.enqueue_call(generate_video_task,
                                             args=(request, team_id, authorization, task_id),
                                             job_id=task_id if task_id else utils.get_uuid(),
                                             timeout=3600,
@@ -45,11 +45,47 @@ async def generate_video_for_client(request: ImageToVideoRequest, authorization:
         logger.error(f'[generate_video_for_client] generate video request exception:{e}')
         return False, "任务提交异常，请稍后再试"
 
+def rerun_job_for_client(job_id: str):
+    try:
+        job = generate_videos_queue.fetch_job(job_id)
+        if not job:
+            return False, "任务不存在"
+        if job.get_status() == 'finished':
+            return False, "任务已完成，无法重试"
+        if job.get_status() == 'failed':
+            job = job.requeue(at_front=True)
+            if not job:
+                return False, f'任务：{job_id}重启失败'
+            return True, job.id
+        return False, "任务状态不允许重试"
+    except Exception as e:
+        logger.error(f'[rerun_job_for_client] rerun job exception:{e}')
+        return False, "任务重试异常，请稍后再试"
+
+def cancel_job_for_client(job_id: str):
+    try:
+        job = generate_videos_queue.fetch_job(job_id)
+        if not job:
+            return False, "任务不存在"
+        if job.get_status() == 'finished':
+            return False, "任务已完成，无法取消"
+        if job.get_status() == 'failed':
+            return False, "任务已失败，无法取消"
+        if job.get_status() == 'cancelled':
+            return False, "任务已取消"
+        if job.get_status() == 'started':
+            return False, "任务正在进行中，无法取消"
+        job.cancel()
+        return True, f'任务：{job_id}已取消'
+    except Exception as e:
+        logger.error(f'[cancel_job_for_client] cancel job exception:{e}')
+        return False, "任务取消异常，请稍后再试"
+
 def handle_success_job(job, connection, result):
     logger.info(f'[handle_success_job] Job {job.id} completed successfully.')
     try:
-        user = UserDBService.get_user()
-        video_save_path = os.path.join(user.vodeo_save_path, job.id)
+        user_dict = UserDBService.get_user()
+        video_save_path = os.path.join(user_dict['video_save_path'], job.id)
         if not os.path.exists(video_save_path):
             os.makedirs(video_save_path)
 
@@ -226,7 +262,7 @@ async def rerun_task(task_id: str, user_id: int):
     return utils.get_response(status=200, data={'job_id':job.id, 'job_status': job.get_status()}, message="success")
 
 @router.get('/tasks/{task_id}/download')
-async def rerun_task(task_id: str, user_id: int):
+async def download_task(task_id: str, user_id: int):
     logger.info(f'[api/tasks/{task_id}/download] download task request:{task_id}')
     job = generate_videos_queue.fetch_job(task_id)
     if not job:

@@ -8,7 +8,7 @@ class UserDBService:
         session = db_manager.get_session()
         user = session.query(User).first()
         session.close()
-        return user
+        return user.to_dict()
 
     @classmethod
     def update_user(cls, username, password, user_type):

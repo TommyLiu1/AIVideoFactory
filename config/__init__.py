@@ -35,12 +35,12 @@ def __init_logger():
 
     logger.remove()
 
-    logger.add(
-        sys.stdout,
-        level=_lvl,
-        format=format_record,
-        colorize=True,
-    )
+    # logger.add(
+    #     sys.stdout,
+    #     level=_lvl,
+    #     format=format_record,
+    #     colorize=True,
+    # )
     # 添加文件输出
     logger.add(
         log_file,
