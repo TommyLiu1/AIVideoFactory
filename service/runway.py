@@ -25,7 +25,7 @@ async def submit_generate_image_task( request: TextToImageRequest, team_id: int,
         authorization: str = Header(None, description="Runway授权令牌")):
     headers = await get_runwayml_headers(authorization)
     options = request.options.model_dump() if request.options else {}
-    width, height = (720, 1280) if request.ratio.find("9:16") != -1 else (1080, 1920)
+    width, height = (720, 1280) if request.ratio.find("9:16") != -1 else (1088, 1920)
     seed = int(time.time())
     module = config.image_default_model if not request.model else request.model
     options.update({
@@ -35,7 +35,7 @@ async def submit_generate_image_task( request: TextToImageRequest, team_id: int,
         "publicImageGeneratorName": module,
         "seed": seed,
         "diversity": 2,
-        "exploreMode": False,
+        "exploreMode": True,
         "flip": True,
         "name": f"{module.replace('-', '')} {request.prompt} a-2, {seed}",
         "assetGroupId": str(utils.get_uuid()),
@@ -49,6 +49,7 @@ async def submit_generate_image_task( request: TextToImageRequest, team_id: int,
         "asTeamId": team_id,
         "sessionId": request.sessionId or str(utils.get_uuid())
     }
+    logger.info(f'[submit_generate_image_task]submit generate image task to runway payload:{payload}'"")
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
             response = await client.post(config.runway_task_api_url, json=payload, headers=headers)
@@ -77,6 +78,8 @@ async def submit_generate_video_task(request: ImageToVideoRequest, team_id: int,
     seed = int(time.time())
     model = config.video_default_model if not request.model else request.model
     model_alias = config.video_default_model_alias
+    keyframes = []
+    keyframes.append({'image':request.image_url, 'timestamp':0})
     options.update({
         "name": f"{model_alias}  {seed}",
         "seconds": request.seconds,
@@ -87,7 +90,7 @@ async def submit_generate_video_task(request: ImageToVideoRequest, team_id: int,
         "route": "i2v",
         "text_prompt": request.prompt,
         "exploreMode": True,
-        "keyframes": {'image':request.image_url, 'timestamp':0},
+        "keyframes": keyframes,
         "assetGroupId": str(utils.get_uuid())
     })
 

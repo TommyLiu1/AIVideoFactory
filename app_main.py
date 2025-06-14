@@ -1,5 +1,7 @@
 import multiprocessing
 import platform
+import threading
+
 import wx
 from loguru import logger
 from ui.login_frame import LoginFrame
@@ -11,6 +13,8 @@ import subprocess
 from config import config
 import psutil
 import sys
+
+from work import monitor
 
 if hasattr(sys, '_MEIPASS'):
     base_path = sys._MEIPASS
@@ -60,5 +64,10 @@ class MyApp(wx.App):
         return 0
 
 if __name__ == '__main__':
+    threading.Thread(
+        target=monitor.monitor_jobs,
+        name="monitor_rq_jobs",
+        daemon=True
+    ).start()
     app = MyApp()
     app.MainLoop()
