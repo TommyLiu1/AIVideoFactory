@@ -16,7 +16,7 @@ class VideoTaskDBService:
         finally:
             session.close()
     @classmethod
-    def update_task_status(cls, task_id, status, video_url=None):
+    def update_task_status(cls, task_id, status, video_url=None,failed_reason=None):
         session = SQLAlchemyManager().get_session()
         try:
             task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
@@ -25,6 +25,8 @@ class VideoTaskDBService:
             task.task_status = status
             if video_url:
                 task.video_url = video_url
+            if failed_reason:
+                task.failed_reason = failed_reason
             session.commit()
             return True, task.to_dict()
         except Exception as e:
