@@ -13,6 +13,8 @@ from service.runway import (
     submit_generate_video_task
 )
 from exceptions.runway_exceptions import RunwayCreditException, RunwayTaskFailedException, RunwayTokenExpiredException
+from work.monitor import handle_finished_job, handle_failed_job
+
 
 async def _poll_task_status(task_id: str, team_id: int, authorization: str, task_type: str) -> str:
     """Helper function to poll task status and return the artifact URL."""
@@ -101,7 +103,9 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
         if img_status_code != 200:
             logger.error(f"Failed to submit image generation task. Status: {img_status_code}, Error: {img_task_id_or_error}")
             if img_status_code == 401:
+                handle_failed_job(task_id, "token过期")
                 raise RunwayTokenExpiredException(img_task_id_or_error)
+            handle_failed_job(task_id, img_task_id_or_error)
             raise RunwayTaskFailedException(f"Failed to submit image generation task: {img_task_id_or_error}")
         
         image_task_id = img_task_id_or_error
@@ -131,7 +135,9 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
                 logger.error(
                     f"Failed to submit video generation task. Status: {video_status_code}, Error: {video_task_id_or_error}")
                 if video_status_code == 401:
+                    handle_failed_job(task_id, "token过期")
                     raise RunwayTokenExpiredException(video_task_id_or_error)
+                handle_failed_job(task_id, video_task_id_or_error)
                 raise RunwayTaskFailedException(f"Failed to submit video generation task: {video_task_id_or_error}")
 
             video_task_id = video_task_id_or_error
@@ -141,6 +147,8 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
             final_video_url = await _poll_task_status(video_task_id, team_id, authorization, "Video")
             logger.info(f"Video generation successful. Final video URL: {final_video_url}")
             final_videos_urls.append(final_video_url)
+
+    handle_finished_job(task_id, final_video_url)
     return final_videos_urls
 
 

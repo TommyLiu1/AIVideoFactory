@@ -13,7 +13,7 @@ a = Analysis(
         ('redis/*', 'redis'),
         ('.venv/Scripts/*', 'Scripts'),
     ],
-    hiddenimports=[],
+    hiddenimports=['rq'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

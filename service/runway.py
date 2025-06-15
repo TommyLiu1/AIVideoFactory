@@ -83,14 +83,13 @@ async def submit_generate_video_task(request: ImageToVideoRequest, team_id: int,
     options.update({
         "name": f"{model_alias}  {seed}",
         "seconds": request.seconds,
-        "width": width,
-        "height": height,
         "watermark": False,
         "seed": seed,
-        "route": "i2v",
         "text_prompt": request.prompt,
         "exploreMode": True,
         "keyframes": keyframes,
+        "enhance_prompt": True,
+        "flip": True,
         "assetGroupId": str(utils.get_uuid())
     })
 
@@ -101,7 +100,8 @@ async def submit_generate_video_task(request: ImageToVideoRequest, team_id: int,
         "asTeamId":team_id,
         "sessionId": request.sessionId or str(utils.get_uuid())
     }
-
+    logger.info(f"[submit_generate_video_task]submit generate video task to runway payload:{payload}")
+    print(f"[submit_generate_video_task]submit generate video task to runway payload:{payload}")
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
             response = await client.post(config.runway_task_api_url, json=payload, headers=headers)

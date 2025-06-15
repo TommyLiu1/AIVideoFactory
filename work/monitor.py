@@ -48,66 +48,63 @@ def monitor_jobs(interval=10):
             for canceled_job_id in canceled_job_ids:
                 failed_jobs.append(queue.fetch_job(canceled_job_id))
 
-        # 处理失败、成功和取消的Job
-        handle_failed_job(failed_registry, failed_jobs)
-        handle_canceled_job(canceled_jobs)
-        handle_finished_job(finished_jobs)
-
         # 等待指定间隔时间
         time.sleep(interval)
 
-def handle_failed_job(failed_registry, failed_jobs):
 
+def handle_failed_job(failed_job_id, reason=None):
     """
     处理失败的Job，记录日志
     """
-    for job in failed_jobs:
-        try:
-            logger.info(f"[handle_failed_job] Job {job.id} failed with exception: {failed_registry.get_exception(job.id)}")
-            # 更新数据库中的任务状态
-            VideoTaskDBService.update_task_status(job.id, 'failed', failed_reason=failed_registry.get_exception(job.id))
-        except Exception as e:
-            logger.error(f'[handle_failed_job] Exception while handling failed job: {e}')
+    try:
+        logger.info(
+            f"[handle_failed_job] Job {failed_job_id} failed with exception: {reason}")
+        # 更新数据库中的任务状态
+        VideoTaskDBService.update_task_status(failed_job_id, 'failed', failed_reason=reason)
+    except Exception as e:
+        logger.error(f'[handle_failed_job] Exception while handling failed job: {e}')
 
-def handle_finished_job(finished_jobs):
+
+def handle_finished_job(finished_job_id, result=None):
     """
     处理成功的Job，记录日志
     """
-    for job in finished_jobs:
-        try:
-            user_dict = UserDBService.get_user()
-            video_save_path = os.path.join(user_dict['video_save_path'], job.id)
-            if not os.path.exists(video_save_path):
-                os.makedirs(video_save_path)
+    try:
+        user_dict = UserDBService.get_user()
+        video_save_path = os.path.join(user_dict['video_save_path'], finished_job_id)
+        if not os.path.exists(video_save_path):
+            os.makedirs(video_save_path)
 
-            result = job.latest_result().return_value
-            logger.info(f"[handle_success_job] Job {job.id} finished with result: {result}")
-            if type(result) is list:
-                video_url_list = result[0]
-                saved_path_list = []
-                for video_url in video_url_list:
-                    logger.info(f'[handle_success_job] Video URL: {video_url}')
-                    saved_path = download_video(video_url, video_save_path, get_filename_from_url(video_url))
-                    saved_path_list.append(saved_path)
-                # 更新数据库中的任务状态
-                saved_path_str = ','.join(saved_path_list)
-                VideoTaskDBService.update_task_status(job.id, 'finished', video_url=saved_path_str)
-            VideoTaskDBService.update_task_status(job.id, 'finished', video_url="")
-        except Exception as e:
-            logger.error(f'[handle_success_job] Exception while handling success job: {e}')
+        logger.info(f"[handle_success_job] Job {finished_job_id} finished with result: {result}")
+        if type(result) is list:
+            video_url_or_list = result[0]
+            if type(video_url_or_list) is not list:
+                video_url_or_list = [video_url_or_list]
+
+            saved_path_list = []
+            for video_url in video_url_or_list:
+                logger.info(f'[handle_success_job] Video URL: {video_url}')
+                saved_path = download_video(video_url, video_save_path, get_filename_from_url(video_url))
+                saved_path_list.append(saved_path)
+            # 更新数据库中的任务状态
+            saved_path_str = ','.join(saved_path_list)
+            VideoTaskDBService.update_task_status(finished_job_id, 'finished', video_url=saved_path_str)
+        VideoTaskDBService.update_task_status(finished_job_id, 'finished', video_url="")
+    except Exception as e:
+        logger.error(f'[handle_success_job] Exception while handling success job: {e}')
 
 
-def handle_canceled_job(canceled_jobs):
+def handle_canceled_job(canceled_job_id):
     """
     处理取消的Job，记录日志
     """
-    for job in canceled_jobs:
-        try:
-            logger.info(f"[handle_canceled_job] Job {job.id} was canceled.")
-            # 更新数据库中的任务状态
-            VideoTaskDBService.update_task_status(job.id, 'canceled')
-        except Exception as e:
-            logger.error(f'[handle_canceled_job] Exception while handling canceled job: {e}')
+    try:
+        logger.info(f"[handle_canceled_job] Job {canceled_job_id} was canceled.")
+        # 更新数据库中的任务状态
+        VideoTaskDBService.update_task_status(canceled_job_id, 'canceled')
+    except Exception as e:
+        logger.error(f'[handle_canceled_job] Exception while handling canceled job: {e}')
+
 
 def download_video(url, save_dir, filename=None):
     if not os.path.exists(save_dir):
@@ -123,10 +120,12 @@ def download_video(url, save_dir, filename=None):
                     f.write(chunk)
     return save_path
 
+
 def get_filename_from_url(url):
     path = urlparse(url).path
     filename = os.path.basename(path)
     return unquote(filename)
+
 
 if __name__ == '__main__':
     print("启动RQ Job监控器，每隔5秒检查一次...")

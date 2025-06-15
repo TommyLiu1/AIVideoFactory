@@ -64,10 +64,10 @@ class MyApp(wx.App):
         return 0
 
 if __name__ == '__main__':
-    threading.Thread(
-        target=monitor.monitor_jobs,
-        name="monitor_rq_jobs",
-        daemon=True
-    ).start()
+    # threading.Thread(
+    #     target=monitor.monitor_jobs,
+    #     name="monitor_rq_jobs",
+    #     daemon=True
+    # ).start()
     app = MyApp()
     app.MainLoop()
