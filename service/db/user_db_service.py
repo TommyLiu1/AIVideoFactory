@@ -4,7 +4,7 @@ from models.db.database_base import session_local
 
 class UserDBService:
     @staticmethod
-    def get_user_by_id(user_id: str):
+    def get_user_by_id(user_id: int):
         with session_local() as session:
             return session.query(Users).filter_by(id=user_id).first()
 
@@ -14,7 +14,7 @@ class UserDBService:
             return session.query(Users).filter_by(username=user_name).first()
 
     @staticmethod
-    def update_user(user_id: str, **kwargs):
+    def update_user(user_id: int, **kwargs):
         with session_local() as session:
             user = session.query(Users).filter_by(id=user_id).first()
             if not user:

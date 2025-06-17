@@ -21,6 +21,7 @@ def create_db_user(username, password, user_type, valid_duration):
         username=username,
         password=hashed_password,
         salt=salt,
+        is_active=False,
         valid_from=valid_from,
         valid_to=valid_to,
         user_type=int(user_type)

@@ -7,6 +7,8 @@ import secrets
 import redis
 from datetime import datetime
 
+from service.db.user_db_service import UserDBService
+
 SECRET_KEY = os.getenv("JW_SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ALLOWED_TIMESTAMP_SKEW = 300  # 允许5分钟内
@@ -31,10 +33,17 @@ async def verify_token_signature(
     # 1. 校验token
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("user_id"))
+        user = UserDBService.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效用户")
+        if not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户已登用")
     except ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token已过期")
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效token")
+
     # 2. 校验timestamp
     try:
         ts = int(timestamp)

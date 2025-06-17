@@ -47,15 +47,21 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
 
 
 @router.post('/logout')
-def logout(token: str = Body(None)):
+def logout(user_id: int = Body(...), token: str = Body(None)):
     """
     用户登出，token立即失效，用户active变为0。
     """
-    if not token:
-        return utils.get_response(status=400, message="Token缺失")
+    if not user_id or not token:
+        return utils.get_response(status=400, message="用户ID缺失或者Token缺失")
+    user = UserDBService.get_user_by_id(user_id)
+    if not user:
+        return utils.get_response(status=404, message="用户不存在")
+    if not user.is_active:
+        return utils.get_response(status=400, message="用户已登出")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("user_id")
+        if user_id != int(payload.get("user_id")):
+            return utils.get_response(status=401, message="无效的用户ID")
     except Exception as e:
         logger.error(f"Token解码失败: {e}")
         return utils.get_response(status=401, message="无效token")
@@ -71,5 +77,8 @@ async def login(login_request: LoginRequest = Body(...)):
     if not user:
         return utils.get_response(status=401, message="用户名或密码错误，或账号无效/过期")
     access_token = create_access_token(data={"user_id": user.id, "username": user.username})
-    return utils.get_response(status=200, data={"token": access_token, "user_id": user.id, "username": user.username}, message="success")
+    return utils.get_response(status=200, data={"token": access_token,
+                                                "user_id": user.id,
+                                                "username": user.username,
+                                                "secret_key": SECRET_KEY}, message="success")
 
