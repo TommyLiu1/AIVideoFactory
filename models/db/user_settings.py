@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, func
 
-from database_base import Base
+from models.db.database_base import Base
 
 class UserSettings(Base):
     __tablename__ = "t_user_settings"

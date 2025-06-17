@@ -1,10 +1,9 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
+from models.db.database_base import Base
 from sqlalchemy.sql import func
 
-task_base = declarative_base()
 
-class VideoTaskExecution(task_base):
+class VideoTaskExecution(Base):
 
     __tablename__ = "t_video_task_execution"
 
