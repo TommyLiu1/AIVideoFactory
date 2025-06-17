@@ -27,8 +27,7 @@ def create_db_user(username, password, user_type, valid_duration):
     )
     if not user:
         click.echo("用户创建失败，请检查输入信息是否正确。")
-    else:
-        click.echo("用户创建成功！")
+    click.echo("用户创建成功！")
 
 if __name__ == '__main__':
     create_db_user()

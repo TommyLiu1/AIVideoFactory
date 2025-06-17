@@ -4,7 +4,7 @@ from sqlalchemy.sql import func
 from models.db.database_base import Base
 
 class Users(Base):
-    __tablename__ = 'users'
+    __tablename__ = 't_users'
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
