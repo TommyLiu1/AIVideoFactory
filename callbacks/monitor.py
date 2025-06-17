@@ -9,7 +9,7 @@ def handle_failed_job(job, connection, type, value, traceback):
     """
     try:
         logger.info(
-            f"[handle_failed_job] Job {job.id} failed with exception: {value}")
+            f"[handle_failed_job] Job {job.id} failed with exception: {traceback}")
         # 更新数据库中的任务状态
         VideoTaskDBService.update_video_task_execution(job.id, task_status='failed', failed_reason=str(value))
     except Exception as e:

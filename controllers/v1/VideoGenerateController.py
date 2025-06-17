@@ -3,10 +3,10 @@ from urllib.parse import urlparse, unquote
 
 import requests
 
-from callbacks.monitor import handle_failed_job, handle_finished_job
+from callbacks.monitor import handle_failed_job, handle_finished_job, handle_canceled_job
 from controllers.v1.base import new_router
 from models.ImageToVideoRequest import ImageToVideoRequest
-from fastapi import Header, Depends, Query
+from fastapi import Header, Depends, Query, Request
 
 from service.db.user_settings_db_service import UserSettingsDBService
 from service.db.video_task_db_service import VideoTaskDBService
@@ -58,6 +58,7 @@ async def generate_video(
                                             timeout=3600,
                                             on_failure=handle_failed_job,
                                             on_success=handle_finished_job,
+                                            on_stopped=handle_canceled_job,
                                             failure_ttl = 86400 * 5,
                                             result_ttl=86400 * 2)
 
@@ -103,68 +104,20 @@ async def query_task(task_id: str, user_id: int):
 async def query_all_task(user_id: int):
     logger.info(f'[api/tasks] query all task request:{user_id}')
     res_tasks = []
-    # 查询队列中的job
-    job_id_list = generate_videos_queue.get_job_ids()
-    for queue_job_id in job_id_list:
-        queue_job = generate_videos_queue.fetch_job(queue_job_id)
-        if queue_job.meta.get('user_id') == user_id:
-            return_res_dict = {
-                'user_id': queue_job.meta.get('user_id'),
-                'job_id': queue_job.id,
-                'prompt': queue_job.meta.get('prompt'),
-                'model': queue_job.meta.get('model'),
-                'ratio': queue_job.meta.get('ratio'),
-                'video_nums': queue_job.meta.get('video_nums'),
-                'job_status': queue_job.get_status()
-            }
-            res_tasks.append(return_res_dict)
-    # 查询已开始但未完成的任务
-    workers = rq.Worker.all(connection=redis_conn)
-    for worker in workers:
-        cur_run_job = worker.get_current_job()
-        if cur_run_job and cur_run_job.meta.get('user_id') == user_id:
-            return_res_dict = {
-                'user_id': cur_run_job.meta.get('user_id'),
-                'job_id': cur_run_job.id,
-                'prompt': cur_run_job.meta.get('prompt'),
-                'model': cur_run_job.meta.get('model'),
-                'ratio': cur_run_job.meta.get('ratio'),
-                'video_nums': cur_run_job.meta.get('video_nums'),
-                'job_status': cur_run_job.get_status()
-            }
-            res_tasks.append(return_res_dict)
-
-    # 检查已完成的任务
-    finished_registry = FinishedJobRegistry(generate_videos_queue.name, generate_videos_queue.connection)
-    for finished_job_id in finished_registry.get_job_ids():
-        finished_job = generate_videos_queue.fetch_job(finished_job_id)
-        if finished_job.meta.get('user_id') == user_id:
-            return_res_dict = {
-                'user_id': finished_job.meta.get('user_id'),
-                'job_id': finished_job.id,
-                'prompt': finished_job.meta.get('prompt'),
-                'model': finished_job.meta.get('model'),
-                'ratio': finished_job.meta.get('ratio'),
-                'video_nums': finished_job.meta.get('video_nums'),
-                'job_status': finished_job.get_status()
-            }
-            res_tasks.append(return_res_dict)
-
-        # 检查失败的任务
-        failed_registry = FailedJobRegistry(generate_videos_queue.name, generate_videos_queue.connection)
-        for failed_job_id in failed_registry.get_job_ids():
-            failed_job = generate_videos_queue.fetch_job(failed_job_id)
-            if failed_job.meta.get('user_id') == user_id:
-                return_res_dict = {
-                    'user_id': failed_job.meta.get('user_id'),
-                    'job_id': failed_job.id,
-                    'prompt': failed_job.meta.get('prompt'),
-                    'model': failed_job.meta.get('model'),
-                    'ratio': failed_job.meta.get('ratio'),
-                    'video_nums': failed_job.meta.get('video_nums'),
-                    'job_status': failed_job.get_status()
-                }
-                res_tasks.append(return_res_dict)
+    task_list = VideoTaskDBService.get_video_task_executions_by_user_id(user_id)
+    if not task_list:
+        return utils.get_response(status=1004, message="没有查询到任务记录", data=res_tasks)
+    for task in task_list:
+        return_res_dict = {
+            'user_id': task.user_id,
+            'job_id': task.task_id,
+            'prompt': task.prompt,
+            'model': task.model,
+            'ratio': task.ratio,
+            'video_nums': task.video_nums,
+            'job_status': task.task_status
+        }
+        res_tasks.append(return_res_dict)
 
     return utils.get_response(status=200, data=res_tasks, message="success")
 
@@ -288,6 +241,30 @@ async def delete_task(task_id: str, user_id: int):
     VideoTaskDBService.delete_video_task_execution(task_id, user_id)
     return utils.get_response(status=200, message="任务删除成功")
 
+@router.post('/tasks/{task_id}/update')
+async def update_task(task_id: str, request: Request):
+    """
+    更新视频任务执行记录，支持部分字段更新。用户通过POST JSON数据。
+    """
+    data = await request.json()
+    user_id = data.get('user_id')
+    logger.info(f'[api/tasks/{task_id}/update] update task request: user_id={user_id}')
+    # 权限校验
+    task = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
+    if not task or task.user_id != user_id:
+        return utils.get_response(status=403, message="无权更新该任务或任务不存在")
+    # 构造更新字段
+    update_fields = {}
+    for field in ["prompt", "model", "ratio", "video_duration", "video_nums"]:
+        if field in data and data[field] is not None:
+            update_fields[field] = data[field]
+    if not update_fields:
+        return utils.get_response(status=400, message="没有需要更新的字段")
+    result = VideoTaskDBService.update_video_task_execution(task_id=task_id, **update_fields)
+    if not result:
+        return utils.get_response(status=500, message="任务更新失败")
+    return utils.get_response(status=200, message="任务更新成功", data=result.to_dict())
+
 @router.delete('/tasks/batch_delete')
 async def batch_delete_tasks(task_ids: list[str] = Query(...), user_id: int = Query(...)):
     logger.info(f'[api/tasks/batch_delete] batch delete tasks: {task_ids}')
@@ -310,3 +287,6 @@ async def batch_delete_tasks(task_ids: list[str] = Query(...), user_id: int = Qu
     if failed:
         return utils.get_response(status=207, message=f'部分任务删除失败: {failed}', data={'failed': failed})
     return utils.get_response(status=200, message="批量任务删除成功")
+
+
+

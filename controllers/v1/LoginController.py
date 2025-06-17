@@ -33,7 +33,7 @@ def authenticate_user(username: str, password: str):
         return None
     if user.valid_to and now > user.valid_to:
         return None
-    if not verify_password(password, user.password):
+    if not verify_password(password, user.salt, user.password):
         return None
     return user
 
