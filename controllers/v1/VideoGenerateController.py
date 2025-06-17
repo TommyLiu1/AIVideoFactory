@@ -1,10 +1,14 @@
-import os.path
+import os
+from urllib.parse import urlparse, unquote
 
+import requests
+
+from callbacks.monitor import handle_failed_job, handle_finished_job
 from controllers.v1.base import new_router
 from models.ImageToVideoRequest import ImageToVideoRequest
-from fastapi import  Header
-from urllib.parse import urlparse, unquote
-from service.db.user_db_service import UserDBService
+from fastapi import Header, Depends, Query
+
+from service.db.user_settings_db_service import UserSettingsDBService
 from service.db.video_task_db_service import VideoTaskDBService
 from service.runway import verify_profile
 from tasks.runway_generate_video_task import generate_video_task
@@ -12,120 +16,21 @@ from utils import utils
 from loguru import logger
 from redis import Redis
 from rq.registry import FinishedJobRegistry, FailedJobRegistry
+from utils.auth import verify_token_signature
 import rq
-import requests
 
 
-router = new_router()
+
+router = new_router(dependencies=[Depends(verify_token_signature)])
+# Redis配置
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
 # 连接到 Redis 服务器
-redis_conn = Redis(host='localhost', port=6379, db=0)
+redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
 # 创建任务队列
 generate_videos_queue = rq.Queue(name="runway_generate_videos_queue", connection=redis_conn)
 
-async def generate_video_for_client(request: ImageToVideoRequest, authorization: str, task_id: str = None):
-    try:
-        logger.info(f'[generate_video_for_client] generate video request:{request}')
-        # 跑任务前验证下token是否失效
-        result_code, result_str = await verify_profile(authorization)
-        if result_code != 200:
-            return False, result_str
-        team_id = result_str
-        job = generate_videos_queue.enqueue_call(generate_video_task,
-                                            args=(request, team_id, authorization, task_id),
-                                            job_id=task_id if task_id else utils.get_uuid(),
-                                            timeout=3600,
-                                            on_failure=handle_failed_job,
-                                            on_success=handle_success_job,
-                                            failure_ttl=86400 * 5,
-                                            result_ttl=86400 * 2)
-        if not job:
-            return False, "任务提交失败，请稍后再试"
-        return True, job.id
-    except Exception as e:
-        logger.error(f'[generate_video_for_client] generate video request exception:{e}')
-        return False, "任务提交异常，请稍后再试"
-
-def rerun_job_for_client(job_id: str):
-    try:
-        job = generate_videos_queue.fetch_job(job_id)
-        if not job:
-            return False, "任务不存在"
-        if job.get_status() == 'finished':
-            return False, "任务已完成，无法重试"
-        if job.get_status() == 'failed':
-            job = job.requeue(at_front=True)
-            if not job:
-                return False, f'任务：{job_id}重启失败'
-            return True, job.id
-        return False, "任务状态不允许重试"
-    except Exception as e:
-        logger.error(f'[rerun_job_for_client] rerun job exception:{e}')
-        return False, "任务重试异常，请稍后再试"
-
-def cancel_job_for_client(job_id: str):
-    try:
-        job = generate_videos_queue.fetch_job(job_id)
-        if not job:
-            return False, "任务不存在"
-        if job.get_status() == 'finished':
-            return False, "任务已完成，无法取消"
-        if job.get_status() == 'failed':
-            return False, "任务已失败，无法取消"
-        if job.get_status() == 'cancelled':
-            return False, "任务已取消"
-        if job.get_status() == 'started':
-            return False, "任务正在进行中，无法取消"
-        job.cancel()
-        return True, f'任务：{job_id}已取消'
-    except Exception as e:
-        logger.error(f'[cancel_job_for_client] cancel job exception:{e}')
-        return False, "任务取消异常，请稍后再试"
-
-def handle_success_job(job, connection, result):
-    logger.info(f'[handle_success_job] Job {job.id} completed successfully.')
-    try:
-        user_dict = UserDBService.get_user()
-        video_save_path = os.path.join(user_dict['video_save_path'], job.id)
-        if not os.path.exists(video_save_path):
-            os.makedirs(video_save_path)
-
-        if type(result) is list:
-            video_url_list = result[0]
-            saved_path_list = []
-            for video_url in video_url_list:
-                logger.info(f'[handle_success_job] Video URL: {video_url}')
-                saved_path = download_video(video_url, video_save_path, get_filename_from_url(video_url))
-                saved_path_list.append(saved_path)
-            # 更新数据库中的任务状态
-            saved_path_str = ','.join(saved_path_list)
-            VideoTaskDBService.update_task_status(job.id, 'finished', video_url=saved_path_str)
-        VideoTaskDBService.update_task_status(job.id, 'finished', video_url="")
-    except Exception as e:
-        logger.error(f'[handle_success_job] Exception while handling success job: {e}')
-
-
-def handle_failed_job(job,  connection, result):
-    logger.error(f'[handle_failed_job] Job {job.id} failed with result: {result}')
-    VideoTaskDBService.update_task_status(job.id, 'failed', video_url="")
-
-def download_video(url, save_dir, filename=None):
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    if not filename:
-        filename = url.split('/')[-1].split('?')[0]
-    save_path = os.path.join(save_dir, filename)
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        with open(save_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-    return save_path
-
-def get_filename_from_url(url):
-    path = urlparse(url).path
-    filename = os.path.basename(path)
-    return unquote(filename)
 
 @router.post('/generate-video')
 async def generate_video(
@@ -146,13 +51,28 @@ async def generate_video(
             'ratio':request.ratio,
             'video_nums':request.numbers
         }
-        job = generate_videos_queue.enqueue(generate_video_task,
+        job = generate_videos_queue.enqueue_call(generate_video_task,
                                             args=(request, team_id,authorization),
                                             job_id=utils.get_uuid(),
                                             meta=meta_info,
                                             timeout=3600,
+                                            on_failure=handle_failed_job,
+                                            on_success=handle_finished_job,
                                             failure_ttl = 86400 * 5,
                                             result_ttl=86400 * 2)
+
+        execution_task = VideoTaskDBService.create_video_task_execution(
+            user_id = user_id,
+            prompt = request.prompt,
+            model = request.model,
+            model_supply = 'runway',
+            ratio = request.ratio,
+            video_duration = request.video_duration,
+            video_nums = request.numbers,
+            task_status='queued',
+        )
+        if not execution_task:
+            logger.warning(f'[api/generate-video] create video task execution failed for user_id:{user_id}')
 
         return utils.get_response(status=200, data={'job_id': job.id}, message='success')
     except Exception as e:
@@ -259,15 +179,134 @@ async def rerun_task(task_id: str, user_id: int):
     job = job.requeue(at_front=True)
     if not job:
         return utils.get_response(500, message=f'任务：{task_id}重启失败')
+    result = VideoTaskDBService.update_video_task_execution(task_id=task_id, task_status='queued')
+    if not result:
+        logger.warning(f'[api/tasks/{task_id}/retry] update video task execution failed for task_id:{task_id}')
     return utils.get_response(status=200, data={'job_id':job.id, 'job_status': job.get_status()}, message="success")
 
+@router.get('/tasks/{task_id}/cancel')
+async def rerun_task(task_id: str, user_id: int):
+    logger.info(f'[api/tasks/{task_id}/retry] retry task request:{task_id}')
+    job = generate_videos_queue.fetch_job(task_id)
+    if not job:
+        return utils.get_response(status=1004, message="取消的任务不存在")
+    if job.meta.get('user_id') != user_id:
+        return utils.get_response(status=403, message="无权访问该任务")
+    try:
+        job.cancel()
+    except Exception as e:
+        logger.error(f'[api/tasks/{task_id}/cancel] cancel task exception:{e}')
+        return utils.get_response(status=500, message=f'任务：{task_id}取消失败')
+    result = VideoTaskDBService.update_video_task_execution(task_id=task_id, task_status='canceled')
+    if not result:
+        logger.warning(f'[api/tasks/{task_id}/cancel] update video task execution failed for task_id:{task_id}')
+    return utils.get_response(status=200, data={'job_id':job.id, 'job_status': 'canceled'}, message="success")
+
 @router.get('/tasks/{task_id}/download')
-async def download_task(task_id: str, user_id: int):
+async def download_task_result(task_id: str, user_id: int):
     logger.info(f'[api/tasks/{task_id}/download] download task request:{task_id}')
     job = generate_videos_queue.fetch_job(task_id)
     if not job:
-        return utils.get_response(status=1004, message="任务不存在")
-    if job.meta.get('user_id') != user_id:
+        job = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
+        if not job:
+            logger.error(f'[api/tasks/{task_id}/download] download task failed: task not found')
+            return utils.get_response(status=1004, message="任务不存在")
+        job_user_id = job.user_id
+        job_result = job.video_url
+    else:
+        job_result = job.latest_result().return_value
+        job_user_id = job.meta.get('user_id')
+
+    if job_user_id != user_id:
         return utils.get_response(status=403, message="无权访问该任务")
 
-    return utils.get_response(status=200, data={'job_id':job.id, 'videos': job.latest_result().return_value}, message="success")
+    user_setting = UserSettingsDBService.get_user_settings(job_user_id)
+    video_save_path = os.path.join(user_setting.save_video_path, job.id)
+    if not os.path.exists(video_save_path):
+        os.makedirs(video_save_path)
+
+    video_url_or_list = []
+    saved_path_list = []
+    if type(job_result) is list:
+        video_url_or_list = job_result[0]
+        if type(video_url_or_list) is not list:
+            video_url_or_list = [video_url_or_list]
+
+    for video_url in video_url_or_list:
+        logger.info(f'begin to download video url: {video_url}')
+        saved_path = download_video(video_url, video_save_path, get_filename_from_url(video_url))
+        saved_path_list.append(saved_path)
+
+    # 过滤掉None，确保join参数都是str
+    saved_path_list = [str(path) for path in saved_path_list if path]
+    saved_path_str = ','.join(saved_path_list)
+    if len(saved_path_list) > 0:
+        logger.info(f"Videos saved to: {saved_path_list}")
+        VideoTaskDBService.update_video_task_execution(task_id=task_id, video_url=saved_path_str)
+
+    return utils.get_response(status=200, data={'job_id':job.id, 'video_save_path': saved_path_str}, message="success")
+
+
+def download_video(url, save_dir, filename=None):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+    if not filename:
+        filename = url.split('/')[-1].split('?')[0]
+    save_path = os.path.join(save_dir, filename)
+    try:
+        with requests.get(url, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            with open(save_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+        logger.info(f"视频下载成功: {url} -> {save_path}")
+        return save_path
+    except Exception as e:
+        logger.error(f"下载视频失败: {url}, 错误: {e}")
+        return None
+
+
+def get_filename_from_url(url):
+    path = urlparse(url).path
+    filename = os.path.basename(path)
+    return unquote(filename)
+
+@router.delete('/tasks/{task_id}/delete')
+async def delete_task(task_id: str, user_id: int):
+    logger.info(f'[api/tasks/{task_id}/delete] delete task request:{task_id}')
+    job = generate_videos_queue.fetch_job(task_id)
+    if job:
+        if job.meta.get('user_id') != user_id:
+            return utils.get_response(status=403, message="无权删除该任务")
+        try:
+            job.delete()
+        except Exception as e:
+            logger.error(f'[api/tasks/{task_id}/delete] delete task exception:{e}')
+            return utils.get_response(status=500, message=f'任务：{task_id}删除失败')
+    # 同步删除数据库记录
+    VideoTaskDBService.delete_video_task_execution(task_id, user_id)
+    return utils.get_response(status=200, message="任务删除成功")
+
+@router.delete('/tasks/batch_delete')
+async def batch_delete_tasks(task_ids: list[str] = Query(...), user_id: int = Query(...)):
+    logger.info(f'[api/tasks/batch_delete] batch delete tasks: {task_ids}')
+    failed = []
+    for task_id in task_ids:
+        job = generate_videos_queue.fetch_job(task_id)
+        if job and job.meta.get('user_id') == user_id:
+            try:
+                job.delete()
+            except Exception as e:
+                logger.error(f'[api/tasks/batch_delete] delete task {task_id} exception:{e}')
+                failed.append(task_id)
+                continue
+        # 同步删除数据库记录
+        try:
+            VideoTaskDBService.delete_video_task_execution(task_id, user_id)
+        except Exception as e:
+            logger.error(f'[api/tasks/batch_delete] delete db task {task_id} exception:{e}')
+            failed.append(task_id)
+    if failed:
+        return utils.get_response(status=207, message=f'部分任务删除失败: {failed}', data={'failed': failed})
+    return utils.get_response(status=200, message="批量任务删除成功")

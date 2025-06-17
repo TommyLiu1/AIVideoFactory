@@ -1,51 +1,75 @@
+import secrets
+
 from models.LoginRequest import LoginRequest
+from service.db.user_db_service import UserDBService
 from utils import utils
 from controllers.v1.base import new_router
 from passlib.context import CryptContext
-from models.user import User
 from fastapi import Body
+from datetime import datetime, timedelta
+from loguru import logger
+import jwt
+import os
 
 router = new_router()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = os.getenv("JW_SECRET_KEY", secrets.token_urlsafe(32))
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1天
 
-# 模拟数据库
-fake_db = {
-    "admin": {
-        "id": 1001,
-        "username": "admin",
-        "password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW"  # secret
-    },
-    "test001": {
-        "id": 1002,
-        "username": "test001",
-        "password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW"  # secret
-    }
-}
+def verify_password(plain_password: str, salt:str, hashed_password: str):
+    return pwd_context.verify(plain_password + salt, hashed_password)
 
-# 工具函数
-def verify_password(plain_password: str, hashed_password: str):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return User(**user_dict)
 
 def authenticate_user(username: str, password: str):
-    user = get_user(fake_db, username)
+    user = UserDBService.get_user_by_name(username)
     if not user:
-        return False
+        return None
+    if not user.is_active:
+        return None
+    now = datetime.now()
+    if user.valid_from and now < user.valid_from:
+        return None
+    if user.valid_to and now > user.valid_to:
+        return None
     if not verify_password(password, user.password):
-        return False
+        return None
     return user
+
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    expire = datetime.now() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+@router.post('/logout')
+def logout(token: str = Body(None)):
+    """
+    用户登出，token立即失效，用户active变为0。
+    """
+    if not token:
+        return utils.get_response(status=400, message="Token缺失")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("user_id")
+    except Exception as e:
+        logger.error(f"Token解码失败: {e}")
+        return utils.get_response(status=401, message="无效token")
+    user = UserDBService.update_user(user_id, is_active=False)
+    if not user:
+        return utils.get_response(status=404, message="用户不存在或已被禁用")
+    return utils.get_response(status=200, message="登出成功")
 
 
 @router.post('/login')
 async def login(login_request: LoginRequest = Body(...)):
     user = authenticate_user(login_request.username, login_request.password)
     if not user:
-        return utils.get_response(status=401, message="用户名或者密码验证失败")
-
-    return utils.get_response(status=200, data={'user_id':user.id}, message="success")
+        return utils.get_response(status=401, message="用户名或密码错误，或账号无效/过期")
+    access_token = create_access_token(data={"user_id": user.id, "username": user.username})
+    return utils.get_response(status=200, data={"token": access_token, "user_id": user.id, "username": user.username}, message="success")
 

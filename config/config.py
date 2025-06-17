@@ -46,3 +46,5 @@ image_default_model = _cfg.get("runway_image_model", "")
 DeepSeek_api_key = _cfg.get("DEEP_SEEK_API_KEY", "")
 DeepSeek_api_url = _cfg.get("DEEP_SEEK_BASE_URL", "")
 DeepSeek_api_model = _cfg.get("DEEP_SEEK_MODEL", "")
+
+mysql_connection_string = _cfg.get("mysql_connection_string", "")

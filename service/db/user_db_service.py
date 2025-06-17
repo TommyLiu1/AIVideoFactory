@@ -1,38 +1,33 @@
-from utils.sqlite_manager import SQLAlchemyManager
-from models.db.user import User
+
+from models.db.users import Users
+from models.db.database_base import session_local
 
 class UserDBService:
-    @classmethod
-    def get_user(cls):
-        db_manager = SQLAlchemyManager()
-        session = db_manager.get_session()
-        user = session.query(User).first()
-        session.close()
-        return user.to_dict()
+    @staticmethod
+    def get_user_by_id(user_id: str):
+        with session_local() as session:
+            return session.query(Users).filter_by(id=user_id).first()
 
-    @classmethod
-    def update_user(cls, username, password, user_type):
-        db_manager = SQLAlchemyManager()
-        session = db_manager.get_session()
-        user = session.query(User).first()
-        if user:
-            user.username = username
-            user.password = password
-            user.user_type = user_type
-            session.commit()
-        else:
-            new_user = User(username=username, password=password, user_type=user_type)
-            session.add(new_user)
-            session.commit()
-        session.close()
-    @classmethod
-    def update_token_and_video_path(cls, token, video_path):
-        db_manager = SQLAlchemyManager()
-        session = db_manager.get_session()
-        user = session.query(User).first()
-        if user:
-            user.token = token
-            user.video_save_path = video_path
-            session.commit()
+    @staticmethod
+    def get_user_by_name(user_name: str):
+        with session_local() as session:
+            return session.query(Users).filter_by(username=user_name).first()
 
+    @staticmethod
+    def update_user(user_id: str, **kwargs):
+        with session_local() as session:
+            user = session.query(Users).filter_by(id=user_id).first()
+            if not user:
+                return None
+            for key, value in kwargs.items():
+                setattr(user, key, value)
+            session.commit()
+            return user
 
+    @staticmethod
+    def create_user(**kwargs):
+        with session_local() as session:
+            user = Users(**kwargs)
+            session.add(user)
+            session.commit()
+            return user

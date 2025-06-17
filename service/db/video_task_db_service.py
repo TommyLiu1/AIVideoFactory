@@ -1,130 +1,143 @@
-from utils.sqlite_manager import SQLAlchemyManager
 from models.db.video_task_excutions import VideoTaskExecution
 from loguru import logger
-import uuid
+from models.db.database_base import session_local
+from utils import utils
+
 
 class VideoTaskDBService:
-    @classmethod
-    def query_all_task(cls):
-        session = SQLAlchemyManager().get_session()
+    @staticmethod
+    def create_video_task_execution(
+        user_id: int,
+        prompt: str,
+        model: str,
+        model_supply: str,
+        ratio: str,
+        video_duration: int,
+        video_nums: int,
+        task_status: str,
+        video_url: str = None,
+        failed_reason: str = None
+    ) -> VideoTaskExecution | None:
+        """
+        创建视频任务执行记录
+        """
         try:
-            tasks = session.query(VideoTaskExecution).order_by(VideoTaskExecution.created_at.desc()).all()
-            return [task.to_dict() for task in tasks]
-        except Exception as e:
-            logger.exception(f"查询所有任务失败: {e}")
-            return []
-        finally:
-            session.close()
-    @classmethod
-    def update_task_status(cls, task_id, status, video_url=None,failed_reason=None):
-        session = SQLAlchemyManager().get_session()
-        try:
-            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
-            if not task:
-                return False, '任务不存在'
-            task.task_status = status
-            if video_url:
-                task.video_url = video_url
-            if failed_reason:
-                task.failed_reason = failed_reason
-            session.commit()
-            return True, task.to_dict()
-        except Exception as e:
-            session.rollback()
-            logger.exception(f"更新任务状态失败: {e}")
-            return False, None
-        finally:
-            session.close()
-
-    @classmethod
-    def add_task(cls, prompt, model, ratio, duration, video_nums):
-        session = SQLAlchemyManager().get_session()
-        try:
-            task = VideoTaskExecution(
-                task_id=str(uuid.uuid4()),
+            execution = VideoTaskExecution(
+                task_id=str(utils.get_uuid()),
+                user_id=user_id,
                 prompt=prompt,
                 model=model,
+                model_supply=model_supply,
                 ratio=ratio,
-                video_duration=duration,
+                video_duration=video_duration,
                 video_nums=video_nums,
-                task_status='pending',
-                video_url=''
+                task_status=task_status,
+                video_url=video_url,
+                failed_reason=failed_reason
             )
-            session.add(task)
-            session.commit()
-            return True, task.to_dict()
-        except Exception as e:
-            session.rollback()
-            logger.exception(f"添加任务失败: {e}")
-            return False, None
-        finally:
-            session.close()
-
-    @classmethod
-    def get_task_by_id(cls, task_id):
-        session = SQLAlchemyManager().get_session()
-        try:
-            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
-            return task, session
-        except Exception as e:
-            session.close()
-            logger.exception(f"根据ID获取任务失败: {e}")
-            return None, None
-
-    @classmethod
-    def query_task_status_by_id(cls, task_id):
-        session = SQLAlchemyManager().get_session()
-        try:
-            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
-            if task:
-                return task.task_status, None
-            else:
-                logger.warning(f"查询任务状态失败，任务不存在: {task_id}")
-                return None, '任务不存在'
-        except Exception as e:
-            logger.exception(f"查询任务状态失败: {e}")
-            return None, str(e)
-        finally:
-            session.close()
-
-    @classmethod
-    def delete_task_by_id(cls, task_id):
-        session = SQLAlchemyManager().get_session()
-        try:
-            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
-            if task:
-                session.delete(task)
+            with session_local() as session:
+                session.add(execution)
                 session.commit()
-                return True, None
-            else:
-                logger.warning(f"删除任务失败，任务不存在: {task_id}")
-                return False, '任务不存在'
+                session.refresh(execution)
+                logger.info(f"创建视频任务执行记录成功: task_id={execution.task_id}, user_id={user_id}, model={model}, status={task_status}")
+                return execution
         except Exception as e:
-            session.rollback()
-            logger.exception(f"删除任务失败: {e}")
-            return False, str(e)
-        finally:
-            session.close()
+            logger.error(f"创建视频任务执行记录失败: {e}")
+        return None
 
-    @classmethod
-    def update_task(cls, task_id, prompt, model, ratio, duration, video_nums):
-        session = SQLAlchemyManager().get_session()
+    @staticmethod
+    def get_video_task_execution_by_task_id(task_id: str) -> VideoTaskExecution | None:
+        """
+        根据任务ID获取视频任务执行记录
+        """
         try:
-            task = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
-            if not task:
-                return False, None
-            task.prompt = prompt
-            task.model = model
-            task.ratio = ratio
-            task.video_duration = duration
-            task.video_nums = video_nums
-            # 编辑后重置状态为pending
-            task.task_status = 'pending'
-            session.commit()
-            return True, task.to_dict()
+            with session_local() as session:
+                execution = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
+                if execution:
+                    logger.info(f"获取视频任务执行记录成功: task_id={task_id}")
+                else:
+                    logger.warning(f"未找到视频任务执行记录: task_id={task_id}")
+                return execution
         except Exception as e:
-            session.rollback()
-            logger.exception(f"更新任务失败: {e}")
-            return False, None
-        finally:
-            session.close()
+            logger.error(f"获取视频任务执行记录失败: {e}")
+        return None
+
+    @staticmethod
+    def update_video_task_execution(
+        task_id: str,
+        **kwargs
+    ) -> VideoTaskExecution | None:
+        """
+        更新视频任务执行记录
+        """
+        try:
+            with session_local() as session:
+                execution = session.query(VideoTaskExecution).filter_by(task_id=task_id).first()
+                if not execution:
+                    logger.warning(f"未找到视频任务执行记录: task_id={task_id}")
+                    return None
+                for key, value in kwargs.items():
+                    setattr(execution, key, value)
+                session.commit()
+                session.refresh(execution)
+                logger.info(f"更新视频任务执行记录成功: task_id={task_id}, updated_fields={kwargs}")
+                return execution
+        except Exception as e:
+            logger.error(f"更新视频任务执行记录失败: {e}")
+        return None
+
+    @staticmethod
+    def get_video_task_executions_by_user_id(user_id: int) -> list[VideoTaskExecution]:
+        """
+        根据用户ID获取所有视频任务执行记录
+        """
+        try:
+            with session_local() as session:
+                executions = session.query(VideoTaskExecution).filter_by(user_id=user_id).all()
+                logger.info(f"获取用户{user_id}的视频任务执行记录成功, count={len(executions)}")
+                return executions
+        except Exception as e:
+            logger.error(f"获取用户{user_id}的视频任务执行记录失败: {e}")
+        return []
+
+    @staticmethod
+    def delete_video_task_execution(user_id:int, task_id: str) -> bool:
+        """
+        删除视频任务执行记录
+        """
+        try:
+            with session_local() as session:
+                execution = session.query(VideoTaskExecution).filter_by(task_id=task_id, user_id=user_id).first()
+                if not execution:
+                    logger.warning(f"未找到视频任务执行记录: task_id={task_id}")
+                    return False
+                session.delete(execution)
+                session.commit()
+                logger.info(f"删除视频任务执行记录成功: task_id={task_id}")
+                return True
+        except Exception as e:
+            logger.error(f"删除视频任务执行记录失败: {e}")
+        return False
+
+    @staticmethod
+    def batch_delete_video_task_executions(user_id: str, task_ids: list[str]) -> bool:
+        """
+        批量删除视频任务执行记录
+        """
+        try:
+            with session_local() as session:
+                executions = session.query(VideoTaskExecution).filter(
+                    VideoTaskExecution.task_id.in_(task_ids),
+                    VideoTaskExecution.user_id == user_id
+                ).all()
+                if not executions:
+                    logger.warning(f"未找到视频任务执行记录: task_ids={task_ids}")
+                    return False
+                for execution in executions:
+                    session.delete(execution)
+                session.commit()
+                logger.info(f"批量删除视频任务执行记录成功: task_ids={task_ids}")
+                return True
+        except Exception as e:
+            logger.error(f"批量删除视频任务执行记录失败: {e}")
+        return False

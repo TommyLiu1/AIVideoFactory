@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
@@ -9,6 +9,7 @@ class VideoTaskExecution(task_base):
     __tablename__ = "t_video_task_execution"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer,  ForeignKey("t_user.id"), index=True, nullable=False)
     task_id = Column(String(255), unique=True, index=True, nullable=True)
     prompt = Column(Text)
     model = Column(String(100))
