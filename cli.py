@@ -4,7 +4,7 @@ from passlib.context import CryptContext
 
 from service.db.user_db_service import UserDBService
 
-click.command(name='create_db_user', help='创建数据库用户')
+@click.command(name='create_db_user', help='创建数据库用户')
 @click.option('--username', prompt='用户名', help='The username for the new database user.')
 @click.option('--password', prompt='密码', hide_input=True, confirmation_prompt=True, help='The password for the new database user.')
 @click.option('--user_type', type=click.Choice(['1', '2', '3'], case_sensitive=False), default='1', help='用户类型，1-runway共享，2-runway独享，3-即梦')
