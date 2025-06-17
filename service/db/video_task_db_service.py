@@ -15,6 +15,7 @@ class VideoTaskDBService:
         video_duration: int,
         video_nums: int,
         task_status: str,
+        task_id: str = None,
         video_url: str = None,
         failed_reason: str = None
     ) -> VideoTaskExecution | None:
@@ -23,7 +24,7 @@ class VideoTaskDBService:
         """
         try:
             execution = VideoTaskExecution(
-                task_id=str(utils.get_uuid()),
+                task_id=task_id if task_id else utils.get_uuid(),
                 user_id=user_id,
                 prompt=prompt,
                 model=model,
@@ -61,6 +62,20 @@ class VideoTaskDBService:
         except Exception as e:
             logger.error(f"获取视频任务执行记录失败: {e}")
         return None
+
+    @staticmethod
+    def get_video_task_executions_by_task_ids(task_ids: list[str]) -> list[VideoTaskExecution]:
+        """
+        根据任务ID列表获取视频任务执行记录
+        """
+        try:
+            with session_local() as session:
+                executions = session.query(VideoTaskExecution).filter(VideoTaskExecution.task_id.in_(task_ids)).all()
+                logger.info(f"获取视频任务执行记录成功, count={len(executions)} for task_ids={task_ids}")
+                return executions
+        except Exception as e:
+            logger.error(f"获取视频任务执行记录失败: {e}")
+        return []
 
     @staticmethod
     def update_video_task_execution(

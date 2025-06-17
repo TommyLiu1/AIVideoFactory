@@ -6,7 +6,7 @@ import requests
 from callbacks.monitor import handle_failed_job, handle_finished_job, handle_canceled_job
 from controllers.v1.base import new_router
 from models.ImageToVideoRequest import ImageToVideoRequest
-from fastapi import Header, Depends, Query, Request
+from fastapi import Depends, Query, Request, Body
 
 from service.db.user_settings_db_service import UserSettingsDBService
 from service.db.video_task_db_service import VideoTaskDBService
@@ -15,7 +15,6 @@ from tasks.runway_generate_video_task import generate_video_task
 from utils import utils
 from loguru import logger
 from redis import Redis
-from rq.registry import FinishedJobRegistry, FailedJobRegistry
 from utils.auth import verify_token_signature
 import rq
 
@@ -32,28 +31,60 @@ redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
 generate_videos_queue = rq.Queue(name="runway_generate_videos_queue", connection=redis_conn)
 
 
-@router.post('/generate-video')
-async def generate_video(
-        request: ImageToVideoRequest,
-        user_id: int,
-        authorization: str = Header(None, description="Runway授权令牌")):
+@router.post('/task/create')
+async def create_generate_video_task(
+        task_request: ImageToVideoRequest,
+        user_id: int):
     try:
-        logger.info(f'[api/generate-video] generate video request:{request}')
+        logger.info(f'[create_generate_video_task] create generate video request:{task_request}')
         # 跑任务前验证下token是否失效
-        result_code, result_str = await verify_profile(authorization)
+        execution_task = VideoTaskDBService.create_video_task_execution(
+            user_id = user_id,
+            prompt = task_request.prompt,
+            model = task_request.model,
+            model_supply = 'runway',
+            ratio = task_request.ratio,
+            video_duration = task_request.video_duration,
+            video_nums = task_request.numbers,
+            task_status='pending',
+        )
+        if not execution_task:
+            logger.warning(f'[create_generate_video_task] create video task execution failed for user_id:{user_id}')
+            return utils.get_response(status=500, message="创建视频执行任务失败")
+
+        return utils.get_response(status=200, data={'job_id': execution_task.task_id}, message='success')
+    except Exception as e:
+        logger.error(f'[create_generate_video_task] create generate video task exception:{e}')
+        return utils.get_response(status=500, message="服务器内部发生错误")
+
+@router.post('/task/run')
+async def run_generate_video_task(task_id: Body(...), user_id: Body(...)):
+    try:
+        logger.info(f'[create_generate_video_task] run video generate task, task id:{task_id}, user id:{user_id}')
+        # 跑任务前验证下token是否失效
+        user_setting = UserSettingsDBService.get_user_settings(user_id)
+        if not user_setting:
+            logger.error(f'[create_generate_video_task] user settings not found for user_id:{user_id}')
+            return utils.get_response(status=1001, message="用户设置未找到")
+
+        result_code, result_str = await verify_profile(user_setting.token)
         if result_code != 200:
             return utils.get_response(status=result_code, message=result_str)
         team_id = result_str
+        task_request = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
+        if not task_request:
+            logger.error(f'[create_generate_video_task] video task execution not found for task_id:{task_id}')
+            return utils.get_response(status=1004, message="任务记录未找到")
         meta_info = {
             'user_id': user_id,
-            'prompt':request.prompt,
-            'model':request.model,
-            'ratio':request.ratio,
-            'video_nums':request.numbers
+            'prompt':task_request.prompt,
+            'model':task_request.model,
+            'ratio':task_request.ratio,
+            'video_nums':task_request.numbers
         }
         job = generate_videos_queue.enqueue_call(generate_video_task,
-                                            args=(request, team_id,authorization),
-                                            job_id=utils.get_uuid(),
+                                            args=(task_request, team_id, user_setting.token),
+                                            job_id=task_id,
                                             meta=meta_info,
                                             timeout=3600,
                                             on_failure=handle_failed_job,
@@ -62,43 +93,90 @@ async def generate_video(
                                             failure_ttl = 86400 * 5,
                                             result_ttl=86400 * 2)
 
-        execution_task = VideoTaskDBService.create_video_task_execution(
-            user_id = user_id,
-            prompt = request.prompt,
-            model = request.model,
-            model_supply = 'runway',
-            ratio = request.ratio,
-            video_duration = request.video_duration,
-            video_nums = request.numbers,
-            task_status='queued',
-        )
-        if not execution_task:
-            logger.warning(f'[api/generate-video] create video task execution failed for user_id:{user_id}')
-
         return utils.get_response(status=200, data={'job_id': job.id}, message='success')
     except Exception as e:
-        logger.error(f'[api/generate-video] generate video task exception:{e}')
+        logger.error(f'[create_generate_video_task] create generate video task exception:{e}')
+        return utils.get_response(status=500, message="服务器内部发生错误")
+
+@router.post('/task/batch_run')
+async def batch_run_generate_video_task(task_ids: Body(...),user_id: Body(...)):
+    try:
+        job_ids = []
+        logger.info(f'[batch_run_generate_video_task] batch run generate video task, the task ids:{task_ids}, user id:{user_id}')
+        # 跑任务前验证下token是否失效
+        user_setting = UserSettingsDBService.get_user_settings(user_id)
+        if not user_setting:
+            logger.error(f'[batch_run_generate_video_task] user settings not found for user_id:{user_id}')
+            return utils.get_response(status=1001, message="用户设置未找到")
+
+        result_code, result_str = await verify_profile(user_setting.token)
+        if result_code != 200:
+            return utils.get_response(status=result_code, message=result_str)
+        team_id = result_str
+        task_request_list = VideoTaskDBService.get_video_task_executions_by_task_ids(task_ids)
+        for task_request in task_request_list:
+            meta_info = {
+                'user_id': user_id,
+                'prompt': task_request.prompt,
+                'model': task_request.model,
+                'ratio': task_request.ratio,
+                'video_nums': task_request.numbers
+            }
+            job = generate_videos_queue.enqueue_call(generate_video_task,
+                                                     args=(task_request, team_id, user_setting.token),
+                                                     job_id=task_request.task_id,
+                                                     meta=meta_info,
+                                                     timeout=3600,
+                                                     on_failure=handle_failed_job,
+                                                     on_success=handle_finished_job,
+                                                     on_stopped=handle_canceled_job,
+                                                     failure_ttl=86400 * 5,
+                                                     result_ttl=86400 * 2)
+
+            job_ids.append(job.id)
+        return utils.get_response(status=200, data={'job_ids': job_ids}, message='success')
+    except Exception as e:
+        logger.error(f'[batch_run_generate_video_task] batch run generate video task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
 
 
 @router.get('/tasks/{task_id}/query')
 async def query_task(task_id: str, user_id: int):
     logger.info(f'[api/tasks/{task_id}/query] query task request:{task_id}')
-    job = generate_videos_queue.fetch_job(task_id)
-    if not job:
+    task = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
+    if not task:
+        logger.error(f"[api/tasks/{task_id}/query] query task failed: task not found for task_id:{task_id}")
         return utils.get_response(status=1004, message="查询的任务不存在")
-    if job.meta.get('user_id') != user_id:
+    if task.user_id != user_id:
+        logger.error(f"[api/tasks/{task_id}/query] query task failed: user_id {user_id} does not have access to task {task_id}")
         return utils.get_response(status=403, message="无权访问该任务")
-    return_res_dict = {
-        'user_id': job.meta.get('user_id'),
-        'job_id': job.id,
-        'prompt': job.meta.get('prompt'),
-        'model': job.meta.get('model'),
-        'ratio': job.meta.get('ratio'),
-        'video_nums': job.meta.get('video_nums'),
-        'job_status': job.get_status()
-    }
-    return utils.get_response(status=200, data=return_res_dict, message='success')
+
+    return utils.get_response(status=200, data=task.to_dict(), message='success')
+
+
+@router.post('/tasks/{task_id}/update')
+async def query_task(task_id: str, user_id: int,  task_request: ImageToVideoRequest):
+    task = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
+    if not task:
+        logger.error(f"[api/tasks/{task_id}/update] update task failed: task not found for task_id:{task_id}")
+        return utils.get_response(status=1004, message="查询的任务不存在")
+    if task.user_id != user_id:
+        logger.error(f"[api/tasks/{task_id}/update] update task failed: user_id {user_id} does not have access to task {task_id}")
+        return utils.get_response(status=403, message="无权访问该任务")
+    logger.info(f'[api/tasks/{task_id}/update] update task request:{task_id}, user_id:{user_id}, task_request:{task_request}')
+    # 更新任务执行记录
+    result = VideoTaskDBService.update_video_task_execution(
+        task_id=task_id,
+        prompt=task_request.prompt,
+        model=task_request.model,
+        ratio=task_request.ratio,
+        video_duration=task_request.video_duration,
+        video_nums=task_request.numbers
+    )
+    if not result:
+        logger.warning(f'[api/tasks/{task_id}/update] update video task execution failed for task_id:{task_id}')
+        return utils.get_response(status=500, message="更新任务失败")
+    return utils.get_response(status=200, data=result.to_dict(), message='success')
 
 @router.get('/tasks')
 async def query_all_task(user_id: int):
@@ -238,32 +316,9 @@ async def delete_task(task_id: str, user_id: int):
             logger.error(f'[api/tasks/{task_id}/delete] delete task exception:{e}')
             return utils.get_response(status=500, message=f'任务：{task_id}删除失败')
     # 同步删除数据库记录
-    VideoTaskDBService.delete_video_task_execution(task_id, user_id)
+    VideoTaskDBService.delete_video_task_execution(user_id, task_id)
     return utils.get_response(status=200, message="任务删除成功")
 
-@router.post('/tasks/{task_id}/update')
-async def update_task(task_id: str, request: Request):
-    """
-    更新视频任务执行记录，支持部分字段更新。用户通过POST JSON数据。
-    """
-    data = await request.json()
-    user_id = data.get('user_id')
-    logger.info(f'[api/tasks/{task_id}/update] update task request: user_id={user_id}')
-    # 权限校验
-    task = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
-    if not task or task.user_id != user_id:
-        return utils.get_response(status=403, message="无权更新该任务或任务不存在")
-    # 构造更新字段
-    update_fields = {}
-    for field in ["prompt", "model", "ratio", "video_duration", "video_nums"]:
-        if field in data and data[field] is not None:
-            update_fields[field] = data[field]
-    if not update_fields:
-        return utils.get_response(status=400, message="没有需要更新的字段")
-    result = VideoTaskDBService.update_video_task_execution(task_id=task_id, **update_fields)
-    if not result:
-        return utils.get_response(status=500, message="任务更新失败")
-    return utils.get_response(status=200, message="任务更新成功", data=result.to_dict())
 
 @router.delete('/tasks/batch_delete')
 async def batch_delete_tasks(task_ids: list[str] = Query(...), user_id: int = Query(...)):
@@ -280,7 +335,7 @@ async def batch_delete_tasks(task_ids: list[str] = Query(...), user_id: int = Qu
                 continue
         # 同步删除数据库记录
         try:
-            VideoTaskDBService.delete_video_task_execution(task_id, user_id)
+            VideoTaskDBService.delete_video_task_execution(user_id, task_id)
         except Exception as e:
             logger.error(f'[api/tasks/batch_delete] delete db task {task_id} exception:{e}')
             failed.append(task_id)
