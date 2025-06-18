@@ -6,7 +6,7 @@ import os
 import secrets
 import redis.asyncio as aioredis
 from datetime import datetime
-
+from loguru import logger
 from service.db.user_db_service import UserDBService
 
 SECRET_KEY = os.getenv("JW_SECRET_KEY", secrets.token_urlsafe(32))
@@ -71,8 +71,10 @@ async def verify_token_signature(
     body = await request.body()
     body_str = body.decode() if body else ""
     # 5. 计算签名
+    logger.info(f"Calculating signature with token: {token}, secret_key: {SECRET_KEY}, timestamp: {timestamp}, nonce: {nonce}, body: {body_str}")
     sign_str = token + timestamp + nonce + body_str + SECRET_KEY
     expected_signature = hashlib.sha256(sign_str.encode()).hexdigest()
+    logger.info(f"Expected signature: {expected_signature}, Provided signature: {signature}")
     if signature != expected_signature:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="签名不合法")
     return payload
