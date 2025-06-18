@@ -18,7 +18,17 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
 
 REDIS_NONCE_EXPIRE = 300  # nonce有效期5分钟
-redis_client = aioredis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+redis = None  # aioredis连接池
+
+async def get_redis():
+    global redis
+    if redis is None:
+        redis = await aioredis.from_url(
+            f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}",
+            encoding="utf-8",
+            decode_responses=True
+        )
+    return redis
 
 async def verify_token_signature(
     request: Request,
@@ -53,7 +63,8 @@ async def verify_token_signature(
     if abs(now - ts) > ALLOWED_TIMESTAMP_SKEW:
         raise HTTPException(status_code=401, detail="请求已过期")
     # 3. 校验nonce防重放（用Redis持久化）
-    if redis_client.get(f"nonce:{nonce}"):
+    redis_client = await get_redis()
+    if await redis_client.get(f"nonce:{nonce}"):
         raise HTTPException(status_code=401, detail="重复请求")
     await redis_client.setex(f"nonce:{nonce}", REDIS_NONCE_EXPIRE, 1)
     # 4. 获取body
@@ -65,5 +76,3 @@ async def verify_token_signature(
     if signature != expected_signature:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="签名不合法")
     return payload
-
-
