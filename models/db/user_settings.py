@@ -5,7 +5,7 @@ from models.db.database_base import Base
 class UserSettings(Base):
     __tablename__ = "t_user_settings"
 
-    user_id = Column(Integer,  ForeignKey("t_user.id"), primary_key=True, index=True)
+    user_id = Column(Integer,  ForeignKey("t_users.id"), primary_key=True, index=True)
     token = Column(String(512), nullable=False, index=True)
     save_video_path = Column(String(256), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
