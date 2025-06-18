@@ -4,7 +4,7 @@ import hashlib
 import jwt
 import os
 import secrets
-import aioredis
+import redis.asyncio as aioredis
 from datetime import datetime
 
 from service.db.user_db_service import UserDBService
