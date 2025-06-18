@@ -75,7 +75,7 @@ async def verify_token_signature(
     body_dict = json.loads(body_decode_str)
     body_str_original = json.dumps(body_dict, ensure_ascii=False)
     # 5. 计算签名
-    logger.info(f"Calculating signature with token: {token}, secret_key: {SECRET_KEY}, timestamp: {timestamp}, nonce: {nonce}, body: {body_str}")
+    logger.info(f"Calculating signature with token: {token}, secret_key: {SECRET_KEY}, timestamp: {timestamp}, nonce: {nonce}, body: {body_str_original}")
     sign_str = token + timestamp + nonce + body_str_original + SECRET_KEY
     expected_signature = hashlib.sha256(sign_str.encode()).hexdigest()
     logger.info(f"Expected signature: {expected_signature}, Provided signature: {signature}")
