@@ -6,7 +6,7 @@ import requests
 from callbacks.monitor import handle_failed_job, handle_finished_job, handle_canceled_job
 from controllers.v1.base import new_router
 from models.ImageToVideoRequest import ImageToVideoRequest
-from fastapi import Depends, Body, Request
+from fastapi import Depends, Request
 
 from service.db.user_settings_db_service import UserSettingsDBService
 from service.db.video_task_db_service import VideoTaskDBService
@@ -52,7 +52,7 @@ async def create_generate_video_task(
             logger.warning(f'[create_generate_video_task] create video task execution failed for user_id:{user_id}')
             return utils.get_response(status=500, message="创建视频执行任务失败")
 
-        return utils.get_response(status=200, data={'job_id': execution_task.task_id}, message='success')
+        return utils.get_response(status=200, data={'job_id': execution_task.get('task_id')}, message='success')
     except Exception as e:
         logger.error(f'[create_generate_video_task] create generate video task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
@@ -67,7 +67,7 @@ async def run_generate_video_task(task_id: str, user_id: int):
             logger.error(f'[create_generate_video_task] user settings not found for user_id:{user_id}')
             return utils.get_response(status=1001, message="用户设置未找到")
 
-        result_code, result_str = await verify_profile(user_setting.token)
+        result_code, result_str = await verify_profile(user_setting.get('token'))
         if result_code != 200:
             return utils.get_response(status=result_code, message=result_str)
         team_id = result_str
@@ -77,13 +77,13 @@ async def run_generate_video_task(task_id: str, user_id: int):
             return utils.get_response(status=1004, message="任务记录未找到")
         meta_info = {
             'user_id': user_id,
-            'prompt':task_request.prompt,
-            'model':task_request.model,
-            'ratio':task_request.ratio,
-            'video_nums':task_request.numbers
+            'prompt':task_request.get('prompt'),
+            'model':task_request.get('model'),
+            'ratio':task_request.get('ratio'),
+            'video_nums':task_request.get('video_nums')
         }
         job = generate_videos_queue.enqueue_call(generate_video_task,
-                                            args=(task_request, team_id, user_setting.token),
+                                            args=(task_request, team_id, user_setting.get('token')),
                                             job_id=task_id,
                                             meta=meta_info,
                                             timeout=3600,
@@ -112,7 +112,7 @@ async def batch_run_generate_video_task(request: Request):
             logger.error(f'[batch_run_generate_video_task] user settings not found for user_id:{user_id}')
             return utils.get_response(status=1001, message="用户设置未找到")
 
-        result_code, result_str = await verify_profile(user_setting.token)
+        result_code, result_str = await verify_profile(user_setting.get('token'))
         if result_code != 200:
             return utils.get_response(status=result_code, message=result_str)
         team_id = result_str
@@ -120,14 +120,14 @@ async def batch_run_generate_video_task(request: Request):
         for task_request in task_request_list:
             meta_info = {
                 'user_id': user_id,
-                'prompt': task_request.prompt,
-                'model': task_request.model,
-                'ratio': task_request.ratio,
-                'video_nums': task_request.video_nums
+                'prompt': task_request.get('prompt'),
+                'model': task_request.get('model'),
+                'ratio': task_request.get('ratio'),
+                'video_nums': task_request.get('video_nums')
             }
             job = generate_videos_queue.enqueue_call(generate_video_task,
-                                                     args=(task_request, team_id, user_setting.token),
-                                                     job_id=task_request.task_id,
+                                                     args=(task_request, team_id, user_setting.get('token')),
+                                                     job_id=task_request.get('task_id'),
                                                      meta=meta_info,
                                                      timeout=3600,
                                                      on_failure=handle_failed_job,
@@ -150,12 +150,12 @@ async def query_task(task_id: str, user_id: int):
         if not task:
             logger.error(f"[api/tasks/{task_id}/query] query task failed: task not found for task_id:{task_id}")
             return utils.get_response(status=1004, message="查询的任务不存在")
-        if task.user_id != user_id:
+        if task.get('user_id') != user_id:
             logger.error(
                 f"[api/tasks/{task_id}/query] query task failed: user_id {user_id} does not have access to task {task_id}")
             return utils.get_response(status=403, message="无权访问该任务")
 
-        return utils.get_response(status=200, data=task.to_dict(), message='success')
+        return utils.get_response(status=200, data=task, message='success')
     except Exception as e:
         logger.error(f"[api/tasks/{task_id}/query] query task exception: {e}")
         return utils.get_response(status=500, message="服务器内部发生错误")
@@ -170,7 +170,7 @@ async def update_task(task_id: str, user_id: int,  task_request: ImageToVideoReq
         if not task:
             logger.error(f"[api/tasks/{task_id}/update] update task failed: task not found for task_id:{task_id}")
             return utils.get_response(status=1004, message="查询的任务不存在")
-        if task.user_id != user_id:
+        if  task.get('user_id') != user_id:
             logger.error(
                 f"[api/tasks/{task_id}/update] update task failed: user_id {user_id} does not have access to task {task_id}")
             return utils.get_response(status=403, message="无权访问该任务")
@@ -188,7 +188,7 @@ async def update_task(task_id: str, user_id: int,  task_request: ImageToVideoReq
         if not result:
             logger.warning(f'[api/tasks/{task_id}/update] update video task execution failed for task_id:{task_id}')
             return utils.get_response(status=500, message="更新任务失败")
-        return utils.get_response(status=200, data=result.to_dict(), message='success')
+        return utils.get_response(status=200, data=result, message='success')
     except Exception as e:
         logger.error(f'[api/tasks/{task_id}/update] update task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
@@ -203,16 +203,7 @@ async def query_all_task(user_id: int):
         if not task_list:
             return utils.get_response(status=1004, message="没有查询到任务记录", data=res_tasks)
         for task in task_list:
-            return_res_dict = {
-                'user_id': task.user_id,
-                'job_id': task.task_id,
-                'prompt': task.prompt,
-                'model': task.model,
-                'ratio': task.ratio,
-                'video_nums': task.video_nums,
-                'job_status': task.task_status
-            }
-            res_tasks.append(return_res_dict)
+            res_tasks.append(task)
 
         return utils.get_response(status=200, data=res_tasks, message="success")
     except Exception as e:
@@ -335,8 +326,8 @@ async def download_task_result(task_id: str, user_id: int):
             if not job:
                 logger.error(f'[api/tasks/{task_id}/download] download task failed: task not found')
                 return utils.get_response(status=1004, message="任务不存在")
-            job_user_id = job.user_id
-            job_result = job.video_url
+            job_user_id = job.get('user_id')
+            job_result = job.get('video_url')
         else:
             job_result = job.latest_result().return_value
             job_user_id = job.meta.get('user_id')
@@ -345,7 +336,7 @@ async def download_task_result(task_id: str, user_id: int):
             return utils.get_response(status=403, message="无权访问该任务")
 
         user_setting = UserSettingsDBService.get_user_settings(job_user_id)
-        video_save_path = os.path.join(user_setting.save_video_path, job.id)
+        video_save_path = os.path.join(user_setting.get('save_video_path'), job.id)
         if not os.path.exists(video_save_path):
             os.makedirs(video_save_path)
 

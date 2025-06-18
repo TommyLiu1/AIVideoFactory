@@ -19,7 +19,7 @@ def get_user_settings(user_id: int):
         if not user_setting:
             return utils.get_response(status=10002, message="无效用户, 请检查用户ID是否正确")
 
-        return utils.get_response(status=200, message="数据获取成功", data=user_setting.to_dict())
+        return utils.get_response(status=200, message="数据获取成功", data=user_setting)
     except Exception as e:
         logger.error(f"[get_user_settings] 获取用户设置失败: {e}")
         return utils.get_response(status=500, message=f"获取用户设置失败")
@@ -48,13 +48,13 @@ async def create_or_update_user_settings(user_id: int, request: Request):
             if not created:
                 logger.error(f"[create_user_settings] 创建用户设置失败, 用户ID: {user_id}, 数据: {data}")
                 return utils.get_response(status=10002, message="数据创建失败, 请检查用户ID是否正确")
-            return utils.get_response(status=200, message="数据创建成功", data=created.to_dict())
+            return utils.get_response(status=200, message="数据创建成功", data=created)
 
         updated = UserSettingsDBService.update_user_settings(user_id, token=token, save_video_path=video_save_path)
         if not updated:
             logger.error(f"[update_user_settings] 更新用户设置失败, 用户ID: {user_id}, 数据: {data}")
             return utils.get_response(status=10002, message="数据更新失败, 请检查用户ID是否正确")
-        return utils.get_response(status=200, message="数据更新成功", data=updated.to_dict())
+        return utils.get_response(status=200, message="数据更新成功", data=updated)
 
     except Exception as e:
         logger.error(f"[create_user_settings] 创建用户设置失败: {e}")
