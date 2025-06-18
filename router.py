@@ -8,7 +8,8 @@ Resources:
 """
 
 from fastapi import APIRouter
-from controllers.v1 import VideoGenerateController,LoginController,UserSettingsController
+from controllers.v1 import VideoGenerateController, LoginController, UserSettingsController, TextOptimizeController
+
 root_api_router = APIRouter()
 # 添加文生视频的路由
 root_api_router.include_router(VideoGenerateController.router)
@@ -16,3 +17,5 @@ root_api_router.include_router(VideoGenerateController.router)
 root_api_router.include_router(LoginController.router)
 # 添加用户设置的路由
 root_api_router.include_router(UserSettingsController.router)
+
+root_api_router.include_router(TextOptimizeController.router)
