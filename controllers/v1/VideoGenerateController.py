@@ -150,7 +150,7 @@ async def query_task(task_id: str, user_id: int):
         if not task:
             logger.error(f"[api/tasks/{task_id}/query] query task failed: task not found for task_id:{task_id}")
             return utils.get_response(status=1004, message="查询的任务不存在")
-        if task.get('user_id') != user_id:
+        if int(task.get('user_id')) != user_id:
             logger.error(
                 f"[api/tasks/{task_id}/query] query task failed: user_id {user_id} does not have access to task {task_id}")
             return utils.get_response(status=403, message="无权访问该任务")
@@ -170,7 +170,7 @@ async def update_task(task_id: str, user_id: int,  task_request: ImageToVideoReq
         if not task:
             logger.error(f"[api/tasks/{task_id}/update] update task failed: task not found for task_id:{task_id}")
             return utils.get_response(status=1004, message="查询的任务不存在")
-        if  task.get('user_id') != user_id:
+        if  int(task.get('user_id')) != user_id:
             logger.error(
                 f"[api/tasks/{task_id}/update] update task failed: user_id {user_id} does not have access to task {task_id}")
             return utils.get_response(status=403, message="无权访问该任务")
@@ -218,7 +218,7 @@ async def rerun_task(task_id: str, user_id: int):
         job = generate_videos_queue.fetch_job(task_id)
         if not job:
             return utils.get_response(status=1004, message="重试的任务不存在")
-        if job.meta.get('user_id') != user_id:
+        if int(job.meta.get('user_id')) != user_id:
             return utils.get_response(status=403, message="无权访问该任务")
         job = job.requeue(at_front=True)
         if not job:
@@ -245,7 +245,7 @@ async def batch_rerun_task(request: Request):
             if not job:
                 logger.error(f"[/tasks/batch_retry] retry task failed: job not found for task_id:{task_id}, user_id:{user_id}")
                 continue
-            if job.meta.get('user_id') != user_id:
+            if int(job.meta.get('user_id')) != int(user_id):
                 logger.error(f"[/tasks/batch_retry] retry task failed: user_id {user_id} does not have access to task {task_id}")
                 continue
             job = job.requeue(at_front=True)
@@ -269,7 +269,7 @@ async def cancel_task(task_id: str, user_id: int):
         job = generate_videos_queue.fetch_job(task_id)
         if not job:
             return utils.get_response(status=1004, message="取消的任务不存在")
-        if job.meta.get('user_id') != user_id:
+        if int(job.meta.get('user_id')) != user_id:
             return utils.get_response(status=403, message="无权访问该任务")
         try:
             job.cancel()
@@ -297,7 +297,7 @@ async def batch_cancel_task(request: Request):
             if not job:
                 logger.error(f"[/tasks/batch_cancel] cancel task failed: job not found for task_id:{task_id}")
                 continue
-            if job.meta.get('user_id') != user_id:
+            if int(job.meta.get('user_id')) != int(user_id):
                 logger.error(
                     f"[/tasks/batch_cancel] cancel task failed: user_id {user_id} does not have access to task {task_id}")
                 continue
@@ -332,7 +332,7 @@ async def download_task_result(task_id: str, user_id: int):
             job_result = job.latest_result().return_value
             job_user_id = job.meta.get('user_id')
 
-        if job_user_id != user_id:
+        if int(job_user_id) != int(user_id):
             return utils.get_response(status=403, message="无权访问该任务")
 
         user_setting = UserSettingsDBService.get_user_settings(job_user_id)
@@ -423,7 +423,7 @@ async def batch_delete_tasks(request: Request):
         user_id = data.get('user_id')
         for task_id in task_ids:
             job = generate_videos_queue.fetch_job(task_id)
-            if job and job.meta.get('user_id') == user_id:
+            if job and int(job.meta.get('user_id')) == int(user_id):
                 try:
                     job.delete()
                 except Exception as e:
