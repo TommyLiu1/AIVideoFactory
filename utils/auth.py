@@ -72,8 +72,14 @@ async def verify_token_signature(
     # 4. 获取body
     body = await request.body()
     body_decode_str = body.decode("utf-8") if body else ""
-    body_dict = json.loads(body_decode_str)
-    body_str_original = json.dumps(body_dict, ensure_ascii=False)
+    body_str_original = body_decode_str  # 默认body原始字符串
+    if body_decode_str:
+        try:
+            json.loads(body_decode_str)  # 确保body是合法的JSON
+            body_dict = json.loads(body_decode_str)
+            body_str_original = json.dumps(body_dict, ensure_ascii=False)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="请求体不是合法的JSON格式")
     # 5. 计算签名
     logger.info(f"Calculating signature with token: {token}, secret_key: {SECRET_KEY}, timestamp: {timestamp}, nonce: {nonce}, body: {body_str_original}")
     sign_str = token + timestamp + nonce + body_str_original + SECRET_KEY
