@@ -69,7 +69,7 @@ async def verify_token_signature(
     await redis_client.setex(f"nonce:{nonce}", REDIS_NONCE_EXPIRE, 1)
     # 4. 获取body
     body = await request.body()
-    body_str = body.decode() if body else ""
+    body_str = body.decode("utf-8") if body else ""
     # 5. 计算签名
     logger.info(f"Calculating signature with token: {token}, secret_key: {SECRET_KEY}, timestamp: {timestamp}, nonce: {nonce}, body: {body_str}")
     sign_str = token + timestamp + nonce + body_str + SECRET_KEY
