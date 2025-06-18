@@ -26,6 +26,7 @@ async def text_optimize(user_prompt: str):
                用户提供的提示词：
                """ + user_prompt
     DeepSeek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    logger.info(f"使用DeepSeek DeepSeek_api_key: {DeepSeek_api_key}, DeepSeek_api_url: {DeepSeek_api_url}, DeepSeek_api_model: {DeepSeek_api_model}")
     ai_client = OpenAI(api_key=DeepSeek_api_key, base_url=DeepSeek_api_url)
     response = ai_client.chat.completions.create(
         model=DeepSeek_api_model,
