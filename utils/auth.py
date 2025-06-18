@@ -4,7 +4,7 @@ import hashlib
 import jwt
 import os
 import secrets
-import redis
+import aioredis
 from datetime import datetime
 
 from service.db.user_db_service import UserDBService
@@ -18,7 +18,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
 
 REDIS_NONCE_EXPIRE = 300  # nonce有效期5分钟
-redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+redis_client = aioredis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
 
 async def verify_token_signature(
     request: Request,
@@ -65,3 +65,5 @@ async def verify_token_signature(
     if signature != expected_signature:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="签名不合法")
     return payload
+
+
