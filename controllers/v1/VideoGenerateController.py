@@ -423,10 +423,13 @@ async def delete_task(task_id: str, user_id: int):
 
 
 @router.delete('/tasks/batch_delete')
-async def batch_delete_tasks(task_ids: Body(...), user_id: Body(...)):
+async def batch_delete_tasks(request: Request):
     try:
-        logger.info(f'[api/tasks/batch_delete] batch delete tasks: {task_ids}, user_id: {user_id}')
+        logger.info(f'[api/tasks/batch_delete] batch delete tasks request: {request}')
         failed = []
+        data = await request.json()
+        task_ids = data.get('task_ids', [])
+        user_id = data.get('user_id')
         for task_id in task_ids:
             job = generate_videos_queue.fetch_job(task_id)
             if job and job.meta.get('user_id') == user_id:
