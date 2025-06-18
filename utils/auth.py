@@ -1,3 +1,5 @@
+import json
+
 from fastapi import Header, HTTPException, status, Request
 from jwt import ExpiredSignatureError
 import hashlib
@@ -69,10 +71,12 @@ async def verify_token_signature(
     await redis_client.setex(f"nonce:{nonce}", REDIS_NONCE_EXPIRE, 1)
     # 4. 获取body
     body = await request.body()
-    body_str = body.decode("utf-8") if body else ""
+    body_decode_str = body.decode("utf-8") if body else ""
+    body_dict = json.loads(body_decode_str)
+    body_str_original = json.dumps(body_dict, ensure_ascii=False)
     # 5. 计算签名
     logger.info(f"Calculating signature with token: {token}, secret_key: {SECRET_KEY}, timestamp: {timestamp}, nonce: {nonce}, body: {body_str}")
-    sign_str = token + timestamp + nonce + body_str + SECRET_KEY
+    sign_str = token + timestamp + nonce + body_str_original + SECRET_KEY
     expected_signature = hashlib.sha256(sign_str.encode()).hexdigest()
     logger.info(f"Expected signature: {expected_signature}, Provided signature: {signature}")
     if signature != expected_signature:
