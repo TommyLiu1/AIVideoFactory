@@ -6,7 +6,7 @@ import requests
 from callbacks.monitor import handle_failed_job, handle_finished_job, handle_canceled_job
 from controllers.v1.base import new_router
 from models.ImageToVideoRequest import ImageToVideoRequest
-from fastapi import Depends, Body
+from fastapi import Depends, Body, Request
 
 from service.db.user_settings_db_service import UserSettingsDBService
 from service.db.video_task_db_service import VideoTaskDBService
@@ -31,7 +31,7 @@ redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
 generate_videos_queue = rq.Queue(name="runway_generate_videos_queue", connection=redis_conn)
 
 
-@router.post('/task/create')
+@router.post('/tasks/create')
 async def create_generate_video_task(
         task_request: ImageToVideoRequest,
         user_id: int):
@@ -57,8 +57,8 @@ async def create_generate_video_task(
         logger.error(f'[create_generate_video_task] create generate video task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
 
-@router.post('/task/run')
-async def run_generate_video_task(task_id: Body(...), user_id: Body(...)):
+@router.get('/tasks/{task_id}/run')
+async def run_generate_video_task(task_id: str, user_id: int):
     try:
         logger.info(f'[create_generate_video_task] run video generate task, task id:{task_id}, user id:{user_id}')
         # 跑任务前验证下token是否失效
@@ -98,9 +98,12 @@ async def run_generate_video_task(task_id: Body(...), user_id: Body(...)):
         logger.error(f'[create_generate_video_task] create generate video task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
 
-@router.post('/task/batch_run')
-async def batch_run_generate_video_task(task_ids: Body(...),user_id: Body(...)):
+@router.post('/tasks/batch_run')
+async def batch_run_generate_video_task(request: Request):
     try:
+        data = await request.json()
+        task_ids = data.get('task_ids')
+        user_id = data.get('user_id')
         job_ids = []
         logger.info(f'[batch_run_generate_video_task] batch run generate video task, the task ids:{task_ids}, user id:{user_id}')
         # 跑任务前验证下token是否失效
@@ -120,7 +123,7 @@ async def batch_run_generate_video_task(task_ids: Body(...),user_id: Body(...)):
                 'prompt': task_request.prompt,
                 'model': task_request.model,
                 'ratio': task_request.ratio,
-                'video_nums': task_request.numbers
+                'video_nums': task_request.video_nums
             }
             job = generate_videos_queue.enqueue_call(generate_video_task,
                                                      args=(task_request, team_id, user_setting.token),
@@ -132,7 +135,6 @@ async def batch_run_generate_video_task(task_ids: Body(...),user_id: Body(...)):
                                                      on_stopped=handle_canceled_job,
                                                      failure_ttl=86400 * 5,
                                                      result_ttl=86400 * 2)
-
             job_ids.append(job.id)
         return utils.get_response(status=200, data={'job_ids': job_ids}, message='success')
     except Exception as e:
@@ -240,18 +242,20 @@ async def rerun_task(task_id: str, user_id: int):
         return utils.get_response(status=500, message="服务器内部发生错误")
 
 @router.post('/tasks/batch_retry')
-async def batch_rerun_task(task_ids: Body(...), user_id: Body(...)):
+async def batch_rerun_task(request: Request):
     try:
+        data = await request.json()
+        task_ids = data.get('task_ids')
+        user_id = data.get('user_id')
         logger.info(f'[/tasks/batch_retry] batch retry task request:{task_ids}, user_id:{user_id}')
         rerun_task_ids = []
-        for task_id in task_ids:
+        for task_id in task_ids or []:
             job = generate_videos_queue.fetch_job(task_id)
             if not job:
                 logger.error(f"[/tasks/batch_retry] retry task failed: job not found for task_id:{task_id}, user_id:{user_id}")
                 continue
             if job.meta.get('user_id') != user_id:
-                logger.error(
-                    f"[/tasks/batch_retry] retry task failed: user_id {user_id} does not have access to task {task_id}")
+                logger.error(f"[/tasks/batch_retry] retry task failed: user_id {user_id} does not have access to task {task_id}")
                 continue
             job = job.requeue(at_front=True)
             if not job:
@@ -289,12 +293,15 @@ async def cancel_task(task_id: str, user_id: int):
         logger.error(f'[api/tasks/{task_id}/cancel] cancel task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
 
-@router.get('/tasks/batch_cancel')
-async def batch_cancel_task(task_ids: Body(...), user_id: Body(...)):
+@router.post('/tasks/batch_cancel')
+async def batch_cancel_task(request: Request):
     try:
+        data = await request.json()
+        task_ids = data.get('task_ids')
+        user_id = data.get('user_id')
         logger.info(f'[/tasks/batch_cancel] batch cancel task request:{task_ids}, user_id:{user_id}')
         batch_cancel_job_ids = []
-        for task_id in task_ids:
+        for task_id in task_ids or []:
             job = generate_videos_queue.fetch_job(task_id)
             if not job:
                 logger.error(f"[/tasks/batch_cancel] cancel task failed: job not found for task_id:{task_id}")
@@ -302,6 +309,7 @@ async def batch_cancel_task(task_ids: Body(...), user_id: Body(...)):
             if job.meta.get('user_id') != user_id:
                 logger.error(
                     f"[/tasks/batch_cancel] cancel task failed: user_id {user_id} does not have access to task {task_id}")
+                continue
             try:
                 job.cancel()
                 batch_cancel_job_ids.append(task_id)
@@ -440,9 +448,3 @@ async def batch_delete_tasks(task_ids: Body(...), user_id: Body(...)):
     except Exception as e:
         logger.error(f'[api/tasks/batch_delete] batch delete tasks exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
-
-
-
-
-
-
