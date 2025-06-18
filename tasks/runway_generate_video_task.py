@@ -1,4 +1,6 @@
 import asyncio
+import random
+
 from fastapi import Header
 from loguru import logger
 from models.ImageToVideoRequest import ImageToVideoRequest
@@ -94,7 +96,8 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
         )
         await _poll_can_submit_image_or_video_task_status(team_id, authorization)
         logger.info(f"Submitting image generation task with payload: {text_to_image_req.model_dump_json(exclude_none=True)}")
-        
+        # Introduce a random delay to avoid hitting API rate limits
+        await asyncio.sleep(random.uniform(1, 3))
         img_status_code, img_task_id_or_error = await submit_generate_image_task(
             request=text_to_image_req,
             team_id=team_id,
@@ -123,7 +126,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
             video_request_payload = request.model_copy(update={"image_url": image_url})
             logger.info(
                 f"Submitting video generation task with payload: {video_request_payload.model_dump_json(exclude_none=True)}")
-
+            await asyncio.sleep(random.uniform(1, 3))
             video_status_code, video_task_id_or_error = await submit_generate_video_task(
                 request=video_request_payload,
                 team_id=team_id,
@@ -146,6 +149,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
             final_videos_urls.append(final_video_url)
 
     return final_videos_urls
+
 
 
 
