@@ -44,7 +44,7 @@ async def create_generate_video_task(
             model = task_request.model,
             model_supply = 'runway',
             ratio = task_request.ratio,
-            video_duration = task_request.video_duration,
+            video_duration = task_request.seconds,
             video_nums = task_request.numbers,
             task_status='pending',
         )
@@ -182,7 +182,7 @@ async def update_task(task_id: str, user_id: int,  task_request: ImageToVideoReq
             prompt=task_request.prompt,
             model=task_request.model,
             ratio=task_request.ratio,
-            video_duration=task_request.video_duration,
+            video_duration=task_request.seconds,
             video_nums=task_request.numbers
         )
         if not result:
