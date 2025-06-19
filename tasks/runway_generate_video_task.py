@@ -79,7 +79,7 @@ async def _poll_can_submit_image_or_video_task_status(team_id: int, authorizatio
 async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_id: int,
                                 authorization: str = Header(None, description="Runway授权令牌"), task_id: str = None):
     logger.info(f"Starting video generation task for team_id: {team_id}, request: {json.dumps(request)}")
-    update_result = VideoTaskDBService.update_video_task_execution(task_id=task_id, user_id=user_id, task_status='running')
+    update_result = VideoTaskDBService.update_video_task_execution(task_id, user_id=user_id, task_status='running')
     if not update_result:
         logger.warning(f"Failed to update video task execution status to 'running' for task_id: {task_id}")
 
@@ -94,7 +94,7 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
         text_to_image_req = TextToImageRequest(
             prompt=request.get('prompt'), # Use prompt from ImageToVideoRequest for image generation
             ratio=request.get('ratio'),   # Use ratio from ImageToVideoRequest
-            num=request.get('numbers'),   # Generate images, 4 is max
+            num=int(request.get('numbers')),   # Generate images, 4 is max
             model='Gen-4',        # Or specify a default image model from config if needed
             asTeamId=team_id,
             sessionId=utils.get_uuid()
