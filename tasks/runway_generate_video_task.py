@@ -1,7 +1,6 @@
 import asyncio
-import json
 import random
-
+import json
 from fastapi import Header
 from loguru import logger
 
@@ -108,7 +107,7 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
             sessionId=utils.get_uuid()
         )
         await _poll_can_submit_image_or_video_task_status(team_id, authorization)
-        logger.info(f"Submitting image generation task with payload: {json.dumps(text_to_image_req)}")
+        logger.info(f"Submitting image generation task with payload: {text_to_image_req.model_dump()}")
         # Introduce a random delay to avoid hitting API rate limits
         await asyncio.sleep(random.uniform(1, 3))
         img_status_code, img_task_id_or_error = await submit_generate_image_task(
@@ -136,12 +135,21 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
         can_submit_video = await _poll_can_submit_image_or_video_task_status(team_id, authorization)
         # Step 5: Submit video generation task if credits are sufficient
         if can_submit_video:
-            video_request_payload = request.model_copy(update={"image_url": image_url})
+            image_to_video_request = ImageToVideoRequest(
+                prompt=request.get('prompt'),
+                model=request.get('model', 'Gen-3A-Turbo'),  # Default to Gen-3A-Turbo if not specified
+                ratio=request.get('ratio', '9:16'),  # Default to 16:9 if not specified
+                seconds=request.get('video_duration', 10),  # Default to 10 seconds if not specified
+                numbers=request.get('video_nums', 1),  # Default to 1 video if not specified
+                image_url=image_url,
+                asTeamId=team_id,
+                sessionId=utils.get_uuid()
+            )
             logger.info(
-                f"Submitting video generation task with payload: {json.dumps(video_request_payload)}")
+                f"Submitting video generation task with payload: {image_to_video_request.model_dump()}")
             await asyncio.sleep(random.uniform(1, 3))
             video_status_code, video_task_id_or_error = await submit_generate_video_task(
-                request=video_request_payload,
+                request=image_to_video_request,
                 team_id=team_id,
                 authorization=authorization
             )
@@ -162,6 +170,8 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
             final_videos_urls.append(final_video_url)
 
     return final_videos_urls
+
+
 
 
 
