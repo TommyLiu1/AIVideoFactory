@@ -96,6 +96,7 @@ class VideoTaskDBService:
                 for key, value in kwargs.items():
                     setattr(execution, key, value)
                 session.commit()
+                session.refresh(execution)
                 logger.info(f"更新视频任务执行记录成功: task_id={task_id}, updated_fields={kwargs}")
                 return execution.to_dict()
         except Exception as e:
