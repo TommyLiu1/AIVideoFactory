@@ -36,6 +36,14 @@ def handle_finished_job(job, connection, result, *args, **kwargs):
     try:
         user_id = int(job.meta.get('user_id', 0))
         logger.info(f"[handle_success_job] User id:{user_id}, Job { job.id} finished with result: {result}")
+        video_url_str = ''
+        if type(result) is list:
+            video_url_or_list = result[0]
+            video_url_str = ','.join(video_url_or_list)
+
+        if type(result) is str:
+            video_url_str = result
+
         # 更新数据库中的任务状态
         result = VideoTaskDBService.update_video_task_execution(
             task_id=job.id,
@@ -45,7 +53,7 @@ def handle_finished_job(job, connection, result, *args, **kwargs):
             video_duration=job.meta.get('video_duration'),
             video_nums=job.meta.get('video_nums'),
             task_status='finished',
-            video_url=str(result)
+            video_url=video_url_str
         )
         if not result:
             logger.error(

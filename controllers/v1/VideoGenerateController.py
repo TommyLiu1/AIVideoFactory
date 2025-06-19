@@ -321,77 +321,26 @@ async def batch_cancel_task(request: Request):
 async def download_task_result(task_id: str, user_id: int):
     try:
         logger.info(f'[api/tasks/{task_id}/download] download task request:{task_id}')
-        job = generate_videos_queue.fetch_job(task_id)
+        job = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
         if not job:
-            job = VideoTaskDBService.get_video_task_execution_by_task_id(task_id)
-            if not job:
-                logger.error(f'[api/tasks/{task_id}/download] download task failed: task not found')
-                return utils.get_response(status=1004, message="任务不存在")
-            job_user_id = job.get('user_id')
-            job_result = job.get('video_url')
-        else:
-            job_result = job.latest_result().return_value
-            job_user_id = job.meta.get('user_id')
+            logger.error(f'[api/tasks/{task_id}/download] download task failed: task not found')
+            return utils.get_response(status=1004, message="任务不存在")
+        job_user_id = job.get('user_id')
+        job_video_url = job.get('video_url')
 
         if int(job_user_id) != int(user_id):
             return utils.get_response(status=403, message="无权访问该任务")
 
         user_setting = UserSettingsDBService.get_user_settings(job_user_id)
-        video_save_path = os.path.join(user_setting.get('save_video_path'), job.id)
-        if not os.path.exists(video_save_path):
-            os.makedirs(video_save_path)
+        video_save_path = os.path.join(user_setting.get('save_video_path'), task_id)
 
-        video_url_or_list = []
-        saved_path_list = []
-        if type(job_result) is list:
-            video_url_or_list = job_result[0]
-            if type(video_url_or_list) is not list:
-                video_url_or_list = [video_url_or_list]
-
-        for video_url in video_url_or_list:
-            logger.info(f'begin to download video url: {video_url}')
-            saved_path = download_video(video_url, video_save_path, get_filename_from_url(video_url))
-            saved_path_list.append(saved_path)
-
-        # 过滤掉None，确保join参数都是str
-        saved_path_list = [str(path) for path in saved_path_list if path]
-        saved_path_str = ','.join(saved_path_list)
-        if len(saved_path_list) > 0:
-            logger.info(f"Videos saved to: {saved_path_list}")
-            VideoTaskDBService.update_video_task_execution(task_id=task_id, video_url=saved_path_str)
-
-        return utils.get_response(status=200, data={'job_id': job.id, 'video_save_path': saved_path_str},
-                                  message="success")
+        job_video_urls = job_video_url.split(',') if job_video_url else []
+        return utils.get_response(status=200, data={'job_id': task_id, 'video_urls': job_video_urls, 'video_save_path':video_save_path}, message='success')
     except Exception as e:
         logger.error(f'[api/tasks/{task_id}/download] download task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
 
 
-
-def download_video(url, save_dir, filename=None):
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir, exist_ok=True)
-    if not filename:
-        filename = url.split('/')[-1].split('?')[0]
-    save_path = os.path.join(save_dir, filename)
-    try:
-        with requests.get(url, stream=True, timeout=30) as r:
-            r.raise_for_status()
-            with open(save_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-        logger.info(f"视频下载成功: {url} -> {save_path}")
-        return save_path
-    except Exception as e:
-        logger.error(f"下载视频失败: {url}, 错误: {e}")
-        return None
-
-
-def get_filename_from_url(url):
-    path = urlparse(url).path
-    filename = os.path.basename(path)
-    return unquote(filename)
 
 @router.delete('/tasks/{task_id}/delete')
 async def delete_task(task_id: str, user_id: int):

@@ -85,10 +85,10 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
         ratio=request.get('ratio'),
         video_duration=request.get('video_duration'),
         video_nums=request.get('video_nums'),
-        task_status='running',
+        task_status='started',
     )
     if not update_result:
-        logger.warning(f"Failed to update video task execution status to 'running' for task_id: {task_id}")
+        logger.warning(f"Failed to update video task execution status to 'started' for task_id: {task_id}")
 
     image_url_for_videos = request.get('image_url').split(',') if 'image_url' in request else []
     # Step 1-3: Generate image if no image_url is provided
