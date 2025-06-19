@@ -73,13 +73,14 @@ async def _poll_can_submit_image_or_video_task_status(team_id: int, authorizatio
     return True
 
 
-async def generate_video_task(request: ImageToVideoRequest, team_id: int,
+async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_id: int,
                                 authorization: str = Header(None, description="Runway授权令牌"), task_id: str = None):
     logger.info(f"Starting video generation task for team_id: {team_id}, request: {json.dumps(request)}")
-    update_result = VideoTaskDBService.update_video_task_execution(task_id=task_id, task_status='running')
+    update_result = VideoTaskDBService.update_video_task_execution(task_id=task_id, user_id=user_id, task_status='running')
     if not update_result:
         logger.warning(f"Failed to update video task execution status to 'running' for task_id: {task_id}")
-    image_url_for_videos = request.image_url.split(',') if request.image_url else []
+
+    image_url_for_videos = request.get('image_url').split(',') if 'image_url' in request else []
     # Step 1-3: Generate image if no image_url is provided
     if len(image_url_for_videos) == 0:
         logger.info("No image_url provided, proceeding to generate image first.")
