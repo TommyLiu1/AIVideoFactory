@@ -80,6 +80,7 @@ async def run_generate_video_task(task_id: str, user_id: int):
             'prompt':task_request.get('prompt'),
             'model':task_request.get('model'),
             'ratio':task_request.get('ratio'),
+            'video_duration':task_request.get('video_duration'),
             'video_nums':task_request.get('video_nums')
         }
         job = generate_videos_queue.enqueue_call(generate_video_task,
