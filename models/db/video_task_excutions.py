@@ -25,6 +25,7 @@ class VideoTaskExecution(Base):
     def to_dict(self):
         return {
             "id": self.id,
+            "user_id": self.user_id,
             "task_id": self.task_id,
             "video_duration": self.video_duration,
             "prompt": self.prompt,
