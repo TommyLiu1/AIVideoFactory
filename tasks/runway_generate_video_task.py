@@ -1,4 +1,5 @@
 import asyncio
+import json
 import random
 
 from fastapi import Header
@@ -74,7 +75,7 @@ async def _poll_can_submit_image_or_video_task_status(team_id: int, authorizatio
 
 async def generate_video_task(request: ImageToVideoRequest, team_id: int,
                                 authorization: str = Header(None, description="Runway授权令牌"), task_id: str = None):
-    logger.info(f"Starting video generation task for team_id: {team_id}, request: {request.model_dump_json(exclude_none=True)}")
+    logger.info(f"Starting video generation task for team_id: {team_id}, request: {json.dumps(request)}")
     update_result = VideoTaskDBService.update_video_task_execution(task_id=task_id, task_status='running')
     if not update_result:
         logger.warning(f"Failed to update video task execution status to 'running' for task_id: {task_id}")
@@ -95,7 +96,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
             sessionId=request.sessionId
         )
         await _poll_can_submit_image_or_video_task_status(team_id, authorization)
-        logger.info(f"Submitting image generation task with payload: {text_to_image_req.model_dump_json(exclude_none=True)}")
+        logger.info(f"Submitting image generation task with payload: {json.dumps(text_to_image_req)}")
         # Introduce a random delay to avoid hitting API rate limits
         await asyncio.sleep(random.uniform(1, 3))
         img_status_code, img_task_id_or_error = await submit_generate_image_task(
@@ -125,7 +126,7 @@ async def generate_video_task(request: ImageToVideoRequest, team_id: int,
         if can_submit_video:
             video_request_payload = request.model_copy(update={"image_url": image_url})
             logger.info(
-                f"Submitting video generation task with payload: {video_request_payload.model_dump_json(exclude_none=True)}")
+                f"Submitting video generation task with payload: {json.dumps(video_request_payload)}")
             await asyncio.sleep(random.uniform(1, 3))
             video_status_code, video_task_id_or_error = await submit_generate_video_task(
                 request=video_request_payload,
