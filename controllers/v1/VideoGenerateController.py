@@ -83,7 +83,7 @@ async def run_generate_video_task(task_id: str, user_id: int):
             'video_nums':task_request.get('video_nums')
         }
         job = generate_videos_queue.enqueue_call(generate_video_task,
-                                            args=(task_request, user_id, team_id, user_setting.get('token')),
+                                            args=(task_request, user_id, team_id, user_setting.get('token'), task_id),
                                             job_id=task_id,
                                             meta=meta_info,
                                             timeout=3600,

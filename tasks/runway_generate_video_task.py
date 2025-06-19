@@ -4,9 +4,12 @@ import random
 
 from fastapi import Header
 from loguru import logger
+
+import utils.utils
 from models.ImageToVideoRequest import ImageToVideoRequest
 from models.TextToImageRequest import TextToImageRequest
 from service.db.video_task_db_service import VideoTaskDBService
+from utils import utils
 
 from service.runway import (
     submit_generate_image_task,
@@ -84,17 +87,17 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
     # Step 1-3: Generate image if no image_url is provided
     if len(image_url_for_videos) == 0:
         logger.info("No image_url provided, proceeding to generate image first.")
-        if not request.prompt:
+        if not request.get('prompt'):
             logger.error("Image generation requested (no image_url) but no prompt provided in ImageToVideoRequest.")
             raise ValueError("A prompt is required in ImageToVideoRequest if image_url is not provided, to generate the initial image.")
 
         text_to_image_req = TextToImageRequest(
-            prompt=request.prompt, # Use prompt from ImageToVideoRequest for image generation
-            ratio=request.ratio,   # Use ratio from ImageToVideoRequest
-            num=request.numbers,   # Generate images, 4 is max
+            prompt=request.get('prompt'), # Use prompt from ImageToVideoRequest for image generation
+            ratio=request.get('ratio'),   # Use ratio from ImageToVideoRequest
+            num=request.get('numbers'),   # Generate images, 4 is max
             model='Gen-4',        # Or specify a default image model from config if needed
             asTeamId=team_id,
-            sessionId=request.sessionId
+            sessionId=utils.get_uuid()
         )
         await _poll_can_submit_image_or_video_task_status(team_id, authorization)
         logger.info(f"Submitting image generation task with payload: {json.dumps(text_to_image_req)}")
