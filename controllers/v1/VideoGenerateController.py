@@ -407,7 +407,7 @@ async def delete_task(task_id: str, user_id: int):
                 return utils.get_response(status=500, message=f'任务：{task_id}删除失败')
         # 同步删除数据库记录
         VideoTaskDBService.delete_video_task_execution(user_id, task_id)
-        return utils.get_response(status=200, message="任务删除成功")
+        return utils.get_response(status=200, message="任务删除成功", data={'task_id': task_id})
     except Exception as e:
         logger.error(f'[api/tasks/{task_id}/delete] delete task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
@@ -416,9 +416,10 @@ async def delete_task(task_id: str, user_id: int):
 @router.delete('/tasks/batch_delete')
 async def batch_delete_tasks(request: Request):
     try:
-        logger.info(f'[api/tasks/batch_delete] batch delete tasks request: {request}')
-        failed = []
+        delete_failed = []
+        delete_succeed = []
         data = await request.json()
+        logger.info(f'[api/tasks/batch_delete] batch delete tasks request: {data}')
         task_ids = data.get('task_ids', [])
         user_id = data.get('user_id')
         for task_id in task_ids:
@@ -428,17 +429,18 @@ async def batch_delete_tasks(request: Request):
                     job.delete()
                 except Exception as e:
                     logger.error(f'[api/tasks/batch_delete] delete task {task_id} exception:{e}')
-                    failed.append(task_id)
+                    delete_failed.append(task_id)
                     continue
             # 同步删除数据库记录
             try:
                 VideoTaskDBService.delete_video_task_execution(user_id, task_id)
+                delete_succeed.append(task_id)
             except Exception as e:
                 logger.error(f'[api/tasks/batch_delete] delete db task {task_id} exception:{e}')
-                failed.append(task_id)
-        if failed:
-            return utils.get_response(status=207, message=f'部分任务删除失败: {failed}', data={'failed': failed})
-        return utils.get_response(status=200, message="批量任务删除成功")
+                delete_failed.append(task_id)
+        if delete_failed:
+            return utils.get_response(status=207, message=f'部分任务删除失败', data={'failed': delete_failed, 'succeed': delete_succeed})
+        return utils.get_response(status=200, message="批量任务删除成功", data={'succeed': delete_succeed, 'failed': delete_failed})
     except Exception as e:
         logger.error(f'[api/tasks/batch_delete] batch delete tasks exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")
