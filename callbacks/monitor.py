@@ -14,7 +14,6 @@ def handle_failed_job(job, connection, type, value, traceback):
         # 更新数据库中的任务状态
         result = VideoTaskDBService.update_video_task_execution(
             task_id=job.id,
-            user_id = user_id,
             prompt=job.meta.get('prompt'),
             model=job.meta.get('model'),
             ratio=job.meta.get('ratio'),
@@ -40,7 +39,6 @@ def handle_finished_job(job, connection, result, *args, **kwargs):
         # 更新数据库中的任务状态
         result = VideoTaskDBService.update_video_task_execution(
             task_id=job.id,
-            user_id=user_id,
             prompt=job.meta.get('prompt'),
             model=job.meta.get('model'),
             ratio=job.meta.get('ratio'),
@@ -67,7 +65,6 @@ def handle_canceled_job(job, connection):
         # 更新数据库中的任务状态
         result = VideoTaskDBService.update_video_task_execution(
             task_id=job.id,
-            user_id=user_id,
             prompt=job.meta.get('prompt'),
             model=job.meta.get('model'),
             ratio=job.meta.get('ratio'),

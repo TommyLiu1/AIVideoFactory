@@ -97,7 +97,7 @@ async def run_generate_video_task(task_id: str, user_id: int):
         return utils.get_response(status=200, data={'job_id': job.id}, message='success')
     except Exception as e:
         logger.error(f'[create_generate_video_task] create generate video task exception:{e}')
-        return utils.get_response(status=500, message="服务器内部发生错误")
+        return utils.get_response(status=500, message="服务器内部发生错误", data={'job_id': task_id})
 
 @router.post('/tasks/batch_run')
 async def batch_run_generate_video_task(request: Request):

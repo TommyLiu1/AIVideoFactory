@@ -81,12 +81,11 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
     logger.info(f"Starting video generation task for team_id: {team_id}, request: {json.dumps(request)}")
     update_result = VideoTaskDBService.update_video_task_execution(
         task_id=task_id,
-        user_id=user_id,
         prompt=request.get('prompt'),
         model=request.get('model'),
         ratio=request.get('ratio'),
         video_duration=request.get('video_duration'),
-        video_nums=request.meta.get('video_nums'),
+        video_nums=request.get('video_nums'),
         task_status='running',
     )
     if not update_result:
