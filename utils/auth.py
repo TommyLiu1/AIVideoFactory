@@ -50,7 +50,7 @@ async def verify_token_signature(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效用户")
         # Removed user.is_active validation for login requests
-        if not user.is_active and request.url.path != '/login':
+        if not user.is_active and request.url.path.find('login') == -1:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户已登用")
     except ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token已过期")
@@ -89,3 +89,4 @@ async def verify_token_signature(
     if signature != expected_signature:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="签名不合法")
     return payload
+
