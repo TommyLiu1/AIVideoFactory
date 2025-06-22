@@ -74,6 +74,7 @@ async def login(login_request: LoginRequest = Body(...)):
     user = authenticate_user(login_request.username, login_request.password)
     if not user:
         return utils.get_response(status=401, message="用户名或密码错误，或账号无效/过期")
+    UserDBService.update_user(user.id, is_active=True)
     access_token = create_access_token(data={"user_id": user.id, "username": user.username})
     return utils.get_response(status=200, data={"token": access_token,
                                                 "user_id": user.id,
