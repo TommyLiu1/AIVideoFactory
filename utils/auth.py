@@ -49,7 +49,8 @@ async def verify_token_signature(
         user = UserDBService.get_user_by_id(user_id)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效用户")
-        if not user.is_active:
+        # Removed user.is_active validation for login requests
+        if not user.is_active and request.url.path != '/login':
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户已登用")
     except ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token已过期")
