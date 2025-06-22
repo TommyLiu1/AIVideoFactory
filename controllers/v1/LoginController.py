@@ -26,8 +26,6 @@ def authenticate_user(username: str, password: str):
     user = UserDBService.get_user_by_name(username)
     if not user:
         return None
-    if not user.is_active:
-        return None
     now = datetime.now()
     if user.valid_from and now < user.valid_from:
         return None
