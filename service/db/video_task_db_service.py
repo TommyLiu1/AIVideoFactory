@@ -15,6 +15,7 @@ class VideoTaskDBService:
         video_duration: int,
         video_nums: int,
         task_status: str,
+        video_name: str,
         task_id: str = None,
         video_url: str = None,
         failed_reason: str = None
@@ -33,6 +34,7 @@ class VideoTaskDBService:
                 video_duration=video_duration,
                 video_nums=video_nums,
                 task_status=task_status,
+                video_name = video_name,
                 video_url=video_url,
                 failed_reason=failed_reason
             )

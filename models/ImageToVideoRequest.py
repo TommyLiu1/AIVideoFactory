@@ -7,6 +7,7 @@ class ImageToVideoRequest(BaseModel):
     ratio: str
     seconds: int
     numbers: int
+    video_name: str
     image_url: Optional[str] = None
     prompt: Optional[str] = ""
     model: Optional[str] = "gen3a_turbo"

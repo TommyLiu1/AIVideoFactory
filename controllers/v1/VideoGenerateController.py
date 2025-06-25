@@ -47,6 +47,7 @@ async def create_generate_video_task(
             video_duration = task_request.seconds,
             video_nums = task_request.numbers,
             task_status='pending',
+            video_name=task_request.video_name,
         )
         if not execution_task:
             logger.warning(f'[create_generate_video_task] create video task execution failed for user_id:{user_id}')
