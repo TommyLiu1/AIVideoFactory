@@ -9,7 +9,8 @@ def handle_failed_job(job, connection, type, value, traceback):
     """
     try:
         user_id = int(job.meta.get('user_id', 0))
-        error_traceback = traceback.format_exc() if traceback else "No traceback"
+        tb_list = traceback.format_tb(traceback) if traceback else []
+        error_traceback = "".join(tb_list)
         logger.info(
             f"[handle_failed_job] User id:{user_id}, Job {job.id} failed with exception: {error_traceback}")
         if error_traceback.find('RunwayTaskFailedException') != -1:

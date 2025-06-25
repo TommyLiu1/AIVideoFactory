@@ -140,7 +140,8 @@ async def generate_video_task(request: ImageToVideoRequest, user_id: int, team_i
                 model=request.get('model', 'Gen-3A-Turbo'),  # Default to Gen-3A-Turbo if not specified
                 ratio=request.get('ratio', '9:16'),  # Default to 16:9 if not specified
                 seconds=request.get('video_duration', 10),  # Default to 10 seconds if not specified
-                numbers=request.get('video_nums', 1),  # Default to 1 video if not specified
+                numbers=request.get('video_nums', 1),
+                video_name='',
                 image_url=image_url,
                 asTeamId=team_id,
                 sessionId=utils.get_uuid()
