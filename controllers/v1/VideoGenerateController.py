@@ -184,6 +184,7 @@ async def update_task(task_id: str, user_id: int,  task_request: ImageToVideoReq
             prompt=task_request.prompt,
             model=task_request.model,
             ratio=task_request.ratio,
+            video_name=task_request.video_name,
             video_duration=task_request.seconds,
             video_nums=task_request.numbers
         )

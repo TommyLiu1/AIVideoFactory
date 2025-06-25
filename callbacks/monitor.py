@@ -1,15 +1,15 @@
 
 from loguru import logger
 from service.db.video_task_db_service import VideoTaskDBService
+import traceback
 
-
-def handle_failed_job(job, connection, type, value, traceback):
+def handle_failed_job(job, connection, type, value, traceback_obj):
     """
     处理失败的Job，记录日志
     """
     try:
         user_id = int(job.meta.get('user_id', 0))
-        tb_list = traceback.format_tb(traceback) if traceback else []
+        tb_list = traceback.format_tb(traceback_obj) if traceback_obj else []
         error_traceback = "".join(tb_list)
         logger.info(
             f"[handle_failed_job] User id:{user_id}, Job {job.id} failed with exception: {error_traceback}")
