@@ -332,10 +332,11 @@ async def download_task_result(task_id: str, user_id: int):
             return utils.get_response(status=403, message="无权访问该任务")
 
         user_setting = UserSettingsDBService.get_user_settings(job_user_id)
-        video_save_path = os.path.join(user_setting.get('save_video_path'), task_id)
+        video_name = job.get('video_name') if job.get('video_name') else task_id
+        video_save_path = os.path.join(user_setting.get('save_video_path'), video_name)
 
         job_video_urls = job_video_url.split(',') if job_video_url else []
-        return utils.get_response(status=200, data={'job_id': task_id, 'video_urls': job_video_urls, 'video_save_path':video_save_path}, message='success')
+        return utils.get_response(status=200, data={'job_id': task_id, 'video_urls': job_video_urls, 'video_save_path':video_save_path, 'video_name':video_name}, message='success')
     except Exception as e:
         logger.error(f'[api/tasks/{task_id}/download] download task exception:{e}')
         return utils.get_response(status=500, message="服务器内部发生错误")

@@ -111,7 +111,8 @@ class VideoTaskDBService:
         try:
             result_list = []
             with session_local() as session:
-                executions = session.query(VideoTaskExecution).filter_by(user_id=user_id).all()
+                executions = session.query(VideoTaskExecution).filter_by(user_id=user_id).order_by(
+                    VideoTaskExecution.created_at.desc()).all()
                 for execution in executions:
                     result_list.append(execution.to_dict())
                 return result_list

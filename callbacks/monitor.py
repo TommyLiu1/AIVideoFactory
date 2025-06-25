@@ -9,8 +9,17 @@ def handle_failed_job(job, connection, type, value, traceback):
     """
     try:
         user_id = int(job.meta.get('user_id', 0))
+        error_traceback = traceback.format_exc() if traceback else "No traceback"
         logger.info(
-            f"[handle_failed_job] User id:{user_id}, Job {job.id} failed with exception: {traceback}")
+            f"[handle_failed_job] User id:{user_id}, Job {job.id} failed with exception: {error_traceback}")
+        if error_traceback.find('RunwayTaskFailedException') != -1:
+            error_value = 'Runway运行任务失败'
+        elif error_traceback.find('RunwayCreditException') != -1:
+            error_value = 'Runway评估任务积分失败'
+        elif error_traceback.find('RunwayTokenExpiredException') != -1:
+            error_value = 'Runway账户过期'
+        else:
+            error_value = value
         # 更新数据库中的任务状态
         result = VideoTaskDBService.update_video_task_execution(
             task_id=job.id,
@@ -20,7 +29,7 @@ def handle_failed_job(job, connection, type, value, traceback):
             video_duration=job.meta.get('video_duration'),
             video_nums=job.meta.get('video_nums'),
             task_status='failed',
-            failed_reason=str(value)
+            failed_reason=str(error_value)
         )
         if not result:
             logger.error(f"[handle_failed_job] Failed to update video task execution for job {job.id} with user_id {user_id}")

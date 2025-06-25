@@ -17,7 +17,9 @@ class VideoTaskExecution(Base):
     video_duration = Column(Integer, index=True, nullable=False)
     video_nums = Column(Integer)
     task_status = Column(String(50))
-    video_url = Column(String(1024))
+    video_url = Column(Text)
+    video_local_path = Column(Text)
+    video_name = Column(String(1024))
     failed_reason = Column(Text, nullable=True)  # 用于存储失败原因
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -35,6 +37,8 @@ class VideoTaskExecution(Base):
             "video_nums": self.video_nums,
             "task_status": self.task_status,
             "failed_reason": self.failed_reason,
+            "video_name": self.video_name,
+            "video_local_path":self.video_local_path,
             "video_url": self.video_url
         }
     def __str__(self) -> str:
