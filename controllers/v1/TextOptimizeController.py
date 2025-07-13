@@ -7,6 +7,7 @@ from utils import utils
 from utils.auth import verify_token_signature
 from config.config import DeepSeek_api_url, DeepSeek_api_model
 from loguru import logger
+import requests
 
 router = new_router(dependencies=[Depends(verify_token_signature)])
 
@@ -41,3 +42,36 @@ async def text_optimize(user_prompt: str):
     except Exception as e:
         logger.error(f"文本优化请求失败: {e}")
         return utils.get_response(status=500, message="文本优化请求失败，请稍后再试。", data=None)
+
+@router.get("/text/send", tags=["TextSend"], summary="对话消息发送")
+async def text_send(user_prompt: str):
+    """
+    文本发送接口
+    """
+    dashscope_api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    url = "https://dashscope.aliyuncs.com/api/v1/apps/1e3f8d827b8d4f28bd1083fa9c6c3596/completion"
+    try:
+        headers = {
+            "Authorization": f"Bearer {dashscope_api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "input": {
+                "prompt": user_prompt
+            },
+            "parameters": {},
+            "debug": {}
+        }
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        result = response.json()
+
+        # 提取output.text
+        answer = result.get("output", {}).get("text", "未获取到有效回复")
+        return utils.get_response(status=200, message="文本发送成功", data={'answer':answer, 'user_query': user_prompt})
+    except Exception as e:
+        logger.error(f"文本发送请求失败: {e}")
+        return utils.get_response(status=500, message="文本发送请求失败，请稍后再试。", data=None)
+
+
